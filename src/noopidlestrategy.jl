@@ -10,3 +10,5 @@ end
 function idle(::NoOpIdleStrategy)
     # No operation performed
 end
+
+export NoOpIdleStrategy

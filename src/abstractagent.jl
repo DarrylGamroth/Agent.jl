@@ -71,3 +71,5 @@ Perform actions when an error occurs.
 """
 function on_error(::AbstractAgent, ::Exception)
 end
+
+export AbstractAgent, AgentTerminationException

@@ -9,3 +9,5 @@ end
 @inline function idle(::YieldingIdleStrategy)
     yield()
 end
+
+export YieldingIdleStrategy

@@ -15,3 +15,5 @@ end
 function idle(strategy::SleepingMillisIdleStrategy)
     sleep(strategy.sleeptime)
 end
+
+export SleepingMillisIdleStrategy

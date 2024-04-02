@@ -68,3 +68,5 @@ end
     strategy.park_period_ns = strategy.min_park_period_ns
     strategy.state = BACKOFF_IDLE_STATE_NOT_IDLE
 end
+
+export BackoffIdleStrategy

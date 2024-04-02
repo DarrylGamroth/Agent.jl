@@ -16,3 +16,5 @@ end
 function idle(strategy::SleepingIdleStrategy)
     park(strategy.sleeptime)
 end
+
+export SleepingIdleStrategy
