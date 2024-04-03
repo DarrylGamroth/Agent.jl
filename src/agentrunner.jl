@@ -32,7 +32,6 @@ function AgentRunner(idle_strategy::I, agent::A) where {I<:IdleStrategy,A<:Abstr
     return runner
 end
 
-
 """
     start(runner::AgentRunner)
 
