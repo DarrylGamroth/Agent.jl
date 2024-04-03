@@ -69,7 +69,8 @@ Perform actions when an error occurs.
 - `error::Exception`: The error that occurred.
 
 """
-function on_error(::AbstractAgent, ::Exception)
+function on_error(::AbstractAgent, e::Exception)
+    throw(e)
 end
 
 export AbstractAgent, AgentTerminationException

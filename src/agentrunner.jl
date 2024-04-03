@@ -153,6 +153,8 @@ end
     catch e
         if e isa AgentTerminationException
             is_running!(runner, false)
+        elseif e isa MethodError
+            throw(e)
         else
             on_error(runner.agent, e)
         end
