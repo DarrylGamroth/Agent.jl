@@ -147,14 +147,18 @@ function run(runner::AgentRunner)
 end
 
 @inline function do_work(runner::AgentRunner)
+    agent = runner.agent
+    idle_strategy = runner.idle_strategy
     try
-        workcount = do_work(runner.agent)
-        idle(runner.idle_strategy, workcount)
+        while true
+            workcount = do_work(agent)
+            idle(idle_strategy, workcount)
+        end
     catch e
         if e isa AgentTerminationException
             is_running!(runner, false)
         else
-            on_error(runner.agent, e)
+            on_error(agent, e)
         end
     end
 end
