@@ -6,7 +6,7 @@
 struct YieldingIdleStrategy <: IdleStrategy
 end
 
-@inline function idle(::YieldingIdleStrategy)
+function idle(::YieldingIdleStrategy)
     yield()
 end
 
