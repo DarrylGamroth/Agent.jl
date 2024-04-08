@@ -42,6 +42,7 @@ end
         strategy.state = BACKOFF_IDLE_STATE_SPINNING
         strategy.spins += 1
     elseif strategy.state == BACKOFF_IDLE_STATE_SPINNING
+        ccall(:jl_cpu_pause, Cvoid, ())
         strategy.spins += 1
         if strategy.spins > strategy.max_spins
             strategy.state = BACKOFF_IDLE_STATE_YIELDING

@@ -1,4 +1,4 @@
 name = "Agent"
 uuid = "f7939a7f-2bcc-4096-952b-c44031b5533b"
 authors = ["Darryl Gamroth <dgamroth@rubus.ca>"]
-version = "0.1.3"
+version = "0.1.4"
