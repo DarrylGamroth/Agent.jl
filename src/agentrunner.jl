@@ -128,10 +128,11 @@ Set the running status of the agent runner.
 is_running!(runner::AgentRunner, value::Bool) = @atomic :release runner.is_running = value
 
 function run(runner::AgentRunner)
+    agent = agent.runner
     try
         is_running!(runner, true)
         try
-            on_start(runner.agent)
+            on_start(agent)
         catch e
             throw(e)
         end
@@ -141,7 +142,7 @@ function run(runner::AgentRunner)
         end
 
         try
-            on_close(runner.agent)
+            on_close(agent)
         catch e
             throw(e)
         end
