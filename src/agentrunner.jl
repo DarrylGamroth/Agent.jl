@@ -18,19 +18,25 @@ Create an agent runner and initialize it.
 # Arguments
 - `idle_strategy`: The idle strategy to use for the agent run loop.
 - `agent`: The agent to be run in this thread.
+- `thrdid`: The thread id to run the agent on. Default is to dynamically schedule
+            on the :default thread pool.
 
 # Returns
 - An initialized `AgentRunner` object.
 
 """
-function AgentRunner(idle_strategy::I, agent::A) where {I<:IdleStrategy,A<:AbstractAgent}
+function AgentRunner(idle_strategy::I, agent::A, thrdid=0) where {I<:IdleStrategy,A<:AbstractAgent}
     runner = AgentRunner{I,A}()
     runner.idle_strategy = idle_strategy
     runner.agent = agent
     @atomic runner.is_started = false
     @atomic runner.is_closed = false
     @atomic runner.is_running = false
-    runner.task = @task run(runner)
+    if thrdid > 0
+        runner.task = @taskat thrdid run(runner)
+    else
+        runner.task = @task run(runner)
+    end
     return runner
 end
 
@@ -128,7 +134,7 @@ Set the running status of the agent runner.
 is_running!(runner::AgentRunner, value::Bool) = @atomic :release runner.is_running = value
 
 function run(runner::AgentRunner)
-    agent = agent.runner
+    agent = runner.agent
     try
         is_running!(runner, true)
         try

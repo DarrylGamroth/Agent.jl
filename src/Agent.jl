@@ -1,5 +1,6 @@
 module Agent
 
+include("task.jl")
 include("idlestrategy.jl")
 include("backoffidlestrategy.jl")
 include("busyspinidlestrategy.jl")
