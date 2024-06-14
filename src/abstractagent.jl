@@ -73,4 +73,17 @@ function on_error(::AbstractAgent, e::Exception)
     throw(e)
 end
 
+"""
+    name(agent::AbstractAgent)
+
+Return the name of the agent.
+
+# Arguments
+- `agent::AbstractAgent`: The agent object.
+
+"""
+function name(agent::AbstractAgent)
+    throw(MethodError(agent, "name"))
+end
+
 export AbstractAgent, AgentTerminationException
