@@ -69,8 +69,8 @@ Perform actions when an error occurs.
 - `error::Exception`: The error that occurred.
 
 """
-function on_error(::AbstractAgent, e::Exception)
-    throw(e)
+function on_error(agent::AbstractAgent, e::Exception)
+    println(stderr, "Uncaught exception in agent $(name(agent)): $e")
 end
 
 """
