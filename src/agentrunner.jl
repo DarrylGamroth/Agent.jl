@@ -73,8 +73,8 @@ This function will wait for the agent task to exit.
 - `runner::AgentRunner`: The agent runner object.
 """
 function close(runner::AgentRunner)
-    if !is_closed(runner)
-        schedule(runner.task, AgentTerminationException(); error=true)
+    _, success = @atomicreplace :sequentially_consistent runner.is_closed false => true
+    if success
         wait(runner.task)
     end
 end
