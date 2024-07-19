@@ -48,12 +48,12 @@ end
 
 
 """
-    @task [:default|:interactive] expr
+    @taskthreadpool [:default|:interactive] expr
 
 Copied from Threads.@spawn to create a [`Task`](@ref) to run on any available thread in
 the specified threadpool (`:default` if unspecified).
 """
-macro task(args...)
+macro taskthreadpool(args...)
     tp = QuoteNode(:default)
     na = length(args)
     if na == 2
@@ -89,3 +89,4 @@ macro task(args...)
         end
     end
 end
+

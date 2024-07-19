@@ -35,7 +35,7 @@ function AgentRunner(idle_strategy::I, agent::A, thrdid=0) where {I<:IdleStrateg
     if thrdid > 0
         runner.task = @taskat thrdid run(runner)
     else
-        runner.task = @task run(runner)
+        runner.task = @taskthreadpool run(runner)
     end
     return runner
 end
