@@ -70,7 +70,7 @@ Perform actions when an error occurs.
 
 """
 function on_error(agent::AbstractAgent, e::Exception)
-    println(stderr, "Uncaught exception in agent $(name(agent)): $e")
+    @error "Uncaught exception in agent $(name(agent))" exception=(e, catch_backtrace())
 end
 
 """

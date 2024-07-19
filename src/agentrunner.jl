@@ -152,6 +152,10 @@ function run(runner::AgentRunner)
         catch e
             throw(e)
         end
+    catch e
+        if e isa Exception
+            @error "Exception caught:" exception = (e, catch_backtrace())
+        end
     finally
         is_running!(runner, false)
     end
@@ -168,8 +172,10 @@ end
     catch e
         if e isa AgentTerminationException
             is_closed!(runner, true)
-        else
+        elseif e isa Exception
             on_error(agent, e)
+        else
+            throw(e)
         end
     end
 end
