@@ -5,51 +5,38 @@ Note: An instance can only be started once then discarded.
 mutable struct AgentRunner{I<:IdleStrategy,A<:AbstractAgent}
     idle_strategy::I
     agent::A
-    task::Task
     @atomic is_started::Bool
     @atomic is_closed::Bool
     @atomic is_running::Bool
-    AgentRunner{I,A}() where {I,A} = new()
+    task
+    """
+    Create an agent runner and initialize it.
+
+    # Arguments
+    - `idle_strategy`: The idle strategy to use for the agent run loop.
+    - `agent`: The agent to be run in this thread.
+
+    # Returns
+    - An initialized `AgentRunner` object.
+
+    """
+    AgentRunner(idle_strategy::I, agent::A) where {I,A} = new{I,A}(idle_strategy, agent, false, false, false)
 end
 
-"""
-Create an agent runner and initialize it.
-
-# Arguments
-- `idle_strategy`: The idle strategy to use for the agent run loop.
-- `agent`: The agent to be run in this thread.
-- `thrdid`: The thread id to run the agent on. Default is to dynamically schedule
-            on the :default thread pool.
-
-# Returns
-- An initialized `AgentRunner` object.
+# Define a default threading function
+default_thread_factory(f) = Threads.@spawn f()
 
 """
-function AgentRunner(idle_strategy::I, agent::A, thrdid=0) where {I<:IdleStrategy,A<:AbstractAgent}
-    runner = AgentRunner{I,A}()
-    runner.idle_strategy = idle_strategy
-    runner.agent = agent
-    @atomic runner.is_started = false
-    @atomic runner.is_closed = false
-    @atomic runner.is_running = false
-    if thrdid > 0
-        runner.task = @taskat thrdid run(runner)
-    else
-        runner.task = @taskthreadpool run(runner)
-    end
-    return runner
-end
-
-"""
-    start(runner::AgentRunner)
+    start_on_thread(runner::AgentRunner, factory::Function = default_thread_factory)
 
     Start the Agent running. Start may be called only once and is invalid after close has been called.
 
 # Arguments
 - `runner::AgentRunner`: The agent runner object.
+- `factory::Function`: The function to use to start the agent. Default is `Threads.@spawn`.
 
 """
-function start(runner::AgentRunner)
+function start_on_thread(runner::AgentRunner, factory::Function=default_thread_factory)
     if is_closed(runner)
         throw(ArgumentError("AgentRunner is closed"))
     end
@@ -59,7 +46,8 @@ function start(runner::AgentRunner)
         throw(ArgumentError("AgentRunner is already started"))
     end
 
-    schedule(runner.task)
+    # Use the factory function to execute the run function in a thread
+    runner.task = factory(() -> run(runner))
 end
 
 """
@@ -133,6 +121,19 @@ Set the running status of the agent runner.
 """
 is_running!(runner::AgentRunner, value::Bool) = @atomic :release runner.is_running = value
 
+"""
+    task(runner::AgentRunner)
+
+Get the task associated with the agent runner.
+
+# Arguments
+- `runner::AgentRunner`: The agent runner object.
+
+# Returns
+- `Task`: The task associated with the agent runner. Returns `undef` if the runner is not started.
+"""
+task(runner::AgentRunner) = runner.task
+
 function run(runner::AgentRunner)
     agent = runner.agent
     try
@@ -180,4 +181,4 @@ end
     end
 end
 
-export AgentRunner, start, close
+export AgentRunner, start_on_thread, close, task
