@@ -60,7 +60,7 @@ This function will wait for the agent task to exit.
 # Arguments
 - `runner::AgentRunner`: The agent runner object.
 """
-function close(runner::AgentRunner)
+function Base.close(runner::AgentRunner)
     _, success = @atomicreplace :sequentially_consistent runner.is_closed false => true
     if success
         wait(runner.task)
@@ -79,6 +79,7 @@ Check if the agent runner is closed.
 - `Bool`: `true` if the agent runner is closed, `false` otherwise.
 """
 is_closed(runner::AgentRunner) = @atomic :acquire runner.is_closed
+Base.isopen(runner::AgentRunner) = !is_closed(runner)
 
 """
     is_closed!(runner::AgentRunner, value::Bool)
@@ -134,6 +135,19 @@ Get the task associated with the agent runner.
 """
 task(runner::AgentRunner) = runner.task
 
+"""
+    wait(runner::AgentRunner)
+
+Wait for the agent runner to finish.
+
+# Arguments
+- `runner::AgentRunner`: The agent runner object.
+
+# Returns
+- `Any`: The result of the agent task.
+"""
+Base.wait(runner::AgentRunner) = wait(runner.task)
+
 function run(runner::AgentRunner)
     agent = runner.agent
     try
@@ -174,7 +188,15 @@ end
         if e isa AgentTerminationException
             is_closed!(runner, true)
         elseif e isa Exception
-            on_error(agent, e)
+            try
+                on_error(agent, e)
+            catch e
+                if e isa AgentTerminationException
+                    is_closed!(runner, true)
+                else
+                    throw(e)
+                end
+            end
         else
             throw(e)
         end
