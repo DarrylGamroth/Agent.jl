@@ -135,19 +135,6 @@ Get the task associated with the agent runner.
 """
 task(runner::AgentRunner) = runner.task
 
-"""
-    wait(runner::AgentRunner)
-
-Wait for the agent runner to finish.
-
-# Arguments
-- `runner::AgentRunner`: The agent runner object.
-
-# Returns
-- `Any`: The result of the agent task.
-"""
-Base.wait(runner::AgentRunner) = wait(runner.task)
-
 function run(runner::AgentRunner)
     agent = runner.agent
     try
