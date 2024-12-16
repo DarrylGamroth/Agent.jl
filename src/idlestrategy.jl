@@ -47,9 +47,9 @@ end
     ```
 
     # Arguments
-    - `workCount::Int`: The number of work performed in the last duty cycle.
+    - `workCount::Integer`: The number of work performed in the last duty cycle.
 """
-@inline function idle(strategy::IdleStrategy, workcount::Int)
+@inline function idle(strategy::IdleStrategy, workcount::Integer)
     if workcount > 0
         reset(strategy)
     else

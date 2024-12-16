@@ -162,8 +162,7 @@ end
     idle_strategy = runner.idle_strategy
     try
         while !is_closed(runner)
-            workcount = do_work(agent)
-            idle(idle_strategy, workcount)
+            idle(idle_strategy, do_work(agent))
         end
     catch e
         if e isa AgentTerminationException
