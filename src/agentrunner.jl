@@ -61,6 +61,7 @@ This function will wait for the agent task to exit.
 - `runner::AgentRunner`: The agent runner object.
 """
 function Base.close(runner::AgentRunner)
+    # schedule(runner.task, AgentTerminationException(); error=true)
     _, success = @atomicreplace :sequentially_consistent runner.is_closed false => true
     if success
         wait(runner.task)
@@ -139,24 +140,17 @@ function run(runner::AgentRunner)
     agent = runner.agent
     try
         is_running!(runner, true)
-        try
-            on_start(agent)
-        catch e
-            throw(e)
-        end
+        on_start(agent)
 
         while !is_closed(runner)
             do_work(runner)
         end
 
-        try
-            on_close(agent)
-        catch e
-            throw(e)
-        end
+        on_close(agent)
     catch e
         if e isa Exception
             @error "Exception caught:" exception = (e, catch_backtrace())
+            throw(e)
         end
     finally
         is_running!(runner, false)
