@@ -60,10 +60,34 @@ This function will wait for the agent task to exit.
 # Arguments
 - `runner::AgentRunner`: The agent runner object.
 """
-function Base.close(runner::AgentRunner)
-    _, success = @atomicreplace :sequentially_consistent runner.is_closed false => true
-    if success
-        wait(runner.task)
+function Base.close(runner::AgentRunner, timeout=0.1)
+    is_running!(runner, false)
+
+    t = runner.task
+
+    if !istaskdone(t) && !istaskfailed(t)
+        while true
+            try
+                is_closed(runner) && return
+
+                timedwait(() -> istaskdone(t), timeout)
+
+                if istaskdone(t) || is_closed(runner)
+                    return
+                end
+
+                if !istaskfailed(t)
+                    schedule(t, InterruptException(), error=true)
+                end
+            catch e
+                if e isa InterruptException
+                    if !is_closed(runner) && !istaskfailed(t)
+                        schedule(t, InterruptException(), error=true)
+                        yield()
+                    end
+                end
+            end
+        end
     end
 end
 
@@ -135,24 +159,40 @@ Get the task associated with the agent runner.
 """
 task(runner::AgentRunner) = runner.task
 
+"""
+    wait(runner::AgentRunner)
+
+Wait for the agent runner to finish.
+
+# Arguments
+- `runner::AgentRunner`: The agent runner object.
+"""
+Base.wait(runner::AgentRunner) = wait(task(runner))
+
 function run(runner::AgentRunner)
     agent = runner.agent
     try
         is_running!(runner, true)
-        on_start(agent)
+        try
+            on_start(agent)
+        catch e
+            is_running!(runner, false)
+            on_error(agent, e)
+            throw(e)
+        end
 
-        while !is_closed(runner)
+        while is_running(runner)
             do_work(runner)
         end
 
-        on_close(agent)
-    catch e
-        if e isa Exception
-            @error "Exception caught:" exception = (e, catch_backtrace())
+        try
+            on_close(agent)
+        catch e
+            on_error(agent, e)
             throw(e)
         end
     finally
-        is_running!(runner, false)
+        is_closed!(runner, true)
     end
 end
 
@@ -160,20 +200,23 @@ end
     agent = runner.agent
     idle_strategy = runner.idle_strategy
     try
-        while !is_closed(runner)
+        while is_running(runner)
             idle(idle_strategy, do_work(agent))
         end
     catch e
         if e isa AgentTerminationException
-            is_closed!(runner, true)
+            is_running!(runner, false)
+        elseif e isa InterruptException
+            is_running!(runner, false)
+            rethrow(e)
         elseif e isa Exception
             try
                 on_error(agent, e)
-            catch e
-                if e isa AgentTerminationException
-                    is_closed!(runner, true)
+            catch on_error_e
+                if on_error_e isa AgentTerminationException
+                    is_running!(runner, false)
                 else
-                    throw(e)
+                    throw(on_error_e)
                 end
             end
         else
@@ -181,5 +224,7 @@ end
         end
     end
 end
+
+Base.isready(runner::AgentRunner) = is_running(runner)
 
 export AgentRunner, start_on_thread, close, task

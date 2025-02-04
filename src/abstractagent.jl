@@ -70,7 +70,6 @@ Perform actions when an error occurs.
 
 """
 function on_error(agent::AbstractAgent, e::Exception)
-    throw(e)
 end
 
 """
