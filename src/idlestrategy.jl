@@ -74,6 +74,12 @@ if Sys.isunix()
         ts = TimeSpec(0, nsec)
         @ccall nanosleep(ts::Ref{TimeSpec}, C_NULL::Ref{Cvoid})::Cint
     end
+elseif Sys.iswindows()
+    function park(nsec::Int64)
+        # Sleep is in milliseconds
+        sleep_time = nsec ÷ 1_000_000 + 1
+        @ccall Sleep(sleep_time::Cuint)::Cvoid
+    end
 else
     error("park undefined for this OS")
 end
