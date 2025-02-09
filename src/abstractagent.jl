@@ -9,7 +9,6 @@
     All lifecycle methods are called by the same thread and in a thread-safe manner if the agent runs successfully.
     `on_close()` will be called if the agent fails to run.
 """
-abstract type AbstractAgent end
 
 """
     struct AgentTerminationException <: Exception
@@ -20,60 +19,61 @@ AgentTerminationException is an exception that an agent can throw to stop itself
 struct AgentTerminationException <: Exception end
 
 """
-    do_work(agent::AbstractAgent)
+    do_work(agent)
 
 Perform the main work of the agent.
 
 # Arguments
-- `agent::AbstractAgent`: The agent object.
+- `agent`: The agent object.
 
 # Throws
 - `MethodError`: If the method is not implemented.
 
 """
-function do_work(agent::AbstractAgent)
-    throw(MethodError(agent, "do_work"))
+function do_work(agent)
+    throw(MethodError(do_work, (agent,)))
 end
 
 """
-    on_start(agent::AbstractAgent)
+    on_start(agent)
 
 Perform actions when the agent starts.
 
 # Arguments
-- `agent::AbstractAgent`: The agent object.
+- `agent`: The agent object.
 
 """
-function on_start(::AbstractAgent)
+function on_start(agent)
 end
 
 """
-    on_close(agent::AbstractAgent)
+    on_close(agent)
 
 Perform actions when the agent is closed.
 
 # Arguments
-- `agent::AbstractAgent`: The agent object.
+- `agent`: The agent object.
 
 """
-function on_close(::AbstractAgent)
+function on_close(agent)
 end
 
 """
-    on_error(agent::AbstractAgent, error::Exception)
+    on_error(agent, error)
 
 Perform actions when an error occurs.
 
 # Arguments
-- `agent::AbstractAgent`: The agent object.
-- `error::Exception`: The error that occurred.
+- `agent`: The agent object.
+- `error`: The object that was thrown.
 
 """
-function on_error(agent::AbstractAgent, e::Exception)
+function on_error(agent, error)
+    throw(error)
 end
 
 """
-    name(agent::AbstractAgent)
+    name(agent)
 
 Return the name of the agent.
 
@@ -81,8 +81,8 @@ Return the name of the agent.
 - `agent::AbstractAgent`: The agent object.
 
 """
-function name(agent::AbstractAgent)
-    throw(MethodError(agent, "name"))
+function name(agent)
+    throw(MethodError(name, (agent,)))
 end
 
-export AbstractAgent, AgentTerminationException
+export AgentTerminationException

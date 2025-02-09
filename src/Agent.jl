@@ -1,5 +1,7 @@
 module Agent
 
+using StableTasks
+
 include("idlestrategy.jl")
 include("backoffidlestrategy.jl")
 include("busyspinidlestrategy.jl")
