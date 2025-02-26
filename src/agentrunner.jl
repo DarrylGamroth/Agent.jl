@@ -162,20 +162,18 @@ function run(runner::AgentRunner)
         catch e
             is_running!(runner, false)
             on_error(agent, e)
-            throw(e)
         end
 
         while is_running(runner)
             do_work(runner)
         end
 
+    finally
         try
             on_close(agent)
         catch e
             on_error(agent, e)
-            throw(e)
         end
-    finally
         is_closed!(runner, true)
     end
     nothing
@@ -193,7 +191,6 @@ end
             is_running!(runner, false)
         elseif e isa InterruptException
             is_running!(runner, false)
-            rethrow(e)
         else
             try
                 on_error(agent, e)
