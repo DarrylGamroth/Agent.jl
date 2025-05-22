@@ -151,7 +151,11 @@ Wait for the agent runner to finish.
 # Arguments
 - `runner::AgentRunner`: The agent runner object.
 """
-Base.wait(runner::AgentRunner) = wait(runner.task)
+function Base.wait(runner::AgentRunner)
+    while !is_closed(runner)
+        yield()
+    end
+end
 
 function run(runner::AgentRunner)
     agent = runner.agent
