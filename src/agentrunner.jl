@@ -153,7 +153,10 @@ Wait for the agent runner to finish.
 """
 function Base.wait(runner::AgentRunner)
     while !is_closed(runner)
-        yield()
+        if istaskdone(runner.task)
+            return
+        end
+        sleep(1)
     end
 end
 
