@@ -30,9 +30,7 @@ Perform the main work of the agent.
 - `MethodError`: If the method is not implemented.
 
 """
-function do_work(agent)
-    throw(MethodError(do_work, (agent,)))
-end
+function do_work end
 
 """
     on_start(agent)

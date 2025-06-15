@@ -172,7 +172,7 @@ function run(runner::AgentRunner)
         end
 
         while is_running(runner)
-            do_work(runner)
+            run_loop(runner)
         end
 
     finally
@@ -186,7 +186,7 @@ function run(runner::AgentRunner)
     nothing
 end
 
-@inline function do_work(runner::AgentRunner)
+@inline function run_loop(runner::AgentRunner)
     agent = runner.agent
     idle_strategy = runner.idle_strategy
     try
@@ -210,8 +210,9 @@ end
             end
         end
     end
+    nothing
 end
 
 Base.isready(runner::AgentRunner) = is_running(runner)
 
-export AgentRunner, start_on_thread, close
+export AgentRunner, start_on_thread
