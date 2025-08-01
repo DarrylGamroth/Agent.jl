@@ -6,3 +6,9 @@ version = "0.3.2"
 [deps]
 Hwloc = "0e44f5e4-bd66-52a0-8798-143a42290a1d"
 StableTasks = "91464d47-22a1-43fe-8b7f-2d57ee82463f"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
