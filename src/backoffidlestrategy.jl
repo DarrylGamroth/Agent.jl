@@ -1,6 +1,6 @@
 using Hwloc
 
-const CACHE_LINE_SIZE::Int = maximum(cachelinesize())
+const CACHE_LINE_SIZE::Int = cachelinesize(:L1)
 const CACHE_LINE_PAD::Int = CACHE_LINE_SIZE - sizeof(Int64)
 
 @enum BackoffIdleState begin
