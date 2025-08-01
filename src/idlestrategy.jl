@@ -83,3 +83,5 @@ elseif Sys.iswindows()
 else
     error("park undefined for this OS")
 end
+
+export IdleStrategy
