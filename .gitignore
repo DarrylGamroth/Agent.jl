@@ -6,6 +6,7 @@ deps/build.log
 deps/downloads/
 docs/build/
 docs/site/
+Manifest.toml
 
 # OS generated files
 .DS_Store
