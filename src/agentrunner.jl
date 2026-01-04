@@ -2,13 +2,16 @@
 Agent runner containing an `Agent` which is run on a `Task`.
 Note: An instance can only be started once then discarded.
 """
-mutable struct AgentRunner{I<:IdleStrategy,A}
+const SINGLE_THREAD_SAFEPOINT_INTERVAL = 1024
+@assert ispow2(SINGLE_THREAD_SAFEPOINT_INTERVAL)
+
+mutable struct AgentRunner{I<:IdleStrategy,A,N}
     idle_strategy::I
     agent::A
     @atomic is_started::Bool
     @atomic is_closed::Bool
     @atomic is_running::Bool
-    task::StableTasks.StableTask{Nothing}
+    task::Union{StableTasks.StableTask{Nothing},Nothing}
     """
     Create an agent runner and initialize it.
 
@@ -17,7 +20,7 @@ mutable struct AgentRunner{I<:IdleStrategy,A}
     - `agent`: The agent to be run in this thread.
     """
     function AgentRunner(idle_strategy::I, agent::A) where {I,A}
-        new{I,A}(idle_strategy, agent, false, false, false)
+        new{I,A,Threads.nthreads()}(idle_strategy, agent, false, false, false, nothing)
     end
 end
 
@@ -35,15 +38,27 @@ function start_on_thread(runner::AgentRunner, threadid::Union{Nothing,Int}=nothi
         throw(ArgumentError("AgentRunner is closed"))
     end
 
+    if threadid !== nothing
+        if threadid < 1 || threadid > Threads.nthreads()
+            throw(ArgumentError("threadid must be in 1:$(Threads.nthreads())"))
+        end
+    end
+
     _, success = @atomicreplace runner.is_started false => true
     if !success
         throw(ArgumentError("AgentRunner is already started"))
     end
 
-    if threadid === nothing
-        runner.task = StableTasks.@spawn run(runner)
-    else
-        runner.task = StableTasks.@spawnat threadid run(runner)
+    try
+        if threadid === nothing
+            runner.task = StableTasks.@spawn run(runner)
+        else
+            runner.task = StableTasks.@spawnat threadid run(runner)
+        end
+    catch
+        is_running!(runner, false)
+        @atomic :release runner.is_started = false
+        rethrow()
     end
 end
 
@@ -58,9 +73,14 @@ This function will wait for the agent task to exit.
 - `runner::AgentRunner`: The agent runner object.
 """
 function Base.close(runner::AgentRunner, timeout=0.1)
+    if !(@atomic :acquire runner.is_started)
+        return
+    end
+
     is_running!(runner, false)
 
     t = runner.task
+    t === nothing && return
 
     if !istaskdone(t) && !istaskfailed(t)
         while true
@@ -152,11 +172,17 @@ Wait for the agent runner to finish.
 - `runner::AgentRunner`: The agent runner object.
 """
 function Base.wait(runner::AgentRunner)
+    if !(@atomic :acquire runner.is_started)
+        return
+    end
+
     while !is_closed(runner)
-        if istaskdone(runner.task)
+        t = runner.task
+        t === nothing && return
+        if istaskdone(t)
             return
         end
-        sleep(1)
+        timedwait(() -> istaskdone(t), 0.1)
     end
 end
 
@@ -192,6 +218,38 @@ end
     try
         while is_running(runner)
             idle(idle_strategy, do_work(agent))
+        end
+    catch e
+        if e isa AgentTerminationException
+            is_running!(runner, false)
+        elseif e isa InterruptException
+            is_running!(runner, false)
+        else
+            try
+                on_error(agent, e)
+            catch on_error_e
+                if on_error_e isa AgentTerminationException
+                    is_running!(runner, false)
+                else
+                    throw(on_error_e)
+                end
+            end
+        end
+    end
+    nothing
+end
+
+@inline function run_loop(runner::AgentRunner{I,A,1}) where {I<:IdleStrategy,A}
+    agent = runner.agent
+    idle_strategy = runner.idle_strategy
+    iterations = 0
+    try
+        while is_running(runner)
+            idle(idle_strategy, do_work(agent))
+            iterations += 1
+            if (iterations & (SINGLE_THREAD_SAFEPOINT_INTERVAL - 1)) == 0
+                GC.safepoint()
+            end
         end
     catch e
         if e isa AgentTerminationException

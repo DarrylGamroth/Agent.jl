@@ -26,7 +26,7 @@ abstract type IdleStrategy end
 
 """
 function idle(strategy::IdleStrategy)
-    throw(MethodError(strategy, "idle"))
+    throw(MethodError(idle, (strategy,)))
 end
 
 """

@@ -8,6 +8,7 @@ This struct uses `Libc.nanosleep` to idle.
 struct SleepingIdleStrategy <: IdleStrategy
     sleeptime::Int
     function SleepingIdleStrategy(sleeptime)
+        sleeptime <= 0 && error("sleeptime must be positive")
         sleeptime >= 1_000_000_000 && error("sleeptime must be less than 1_000_000_000 nanoseconds")
         new(sleeptime)
     end

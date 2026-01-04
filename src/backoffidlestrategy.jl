@@ -1,7 +1,14 @@
 using Hwloc
 
-const CACHE_LINE_SIZE::Int = cachelinesize(:L1)
-const CACHE_LINE_PAD::Int = CACHE_LINE_SIZE - sizeof(Int64)
+const CACHE_LINE_SIZE::Int = let
+    size = try
+        cachelinesize(:L1)
+    catch
+        64
+    end
+    size > 0 ? size : 64
+end
+const CACHE_LINE_PAD::Int = max(CACHE_LINE_SIZE - sizeof(Int64), 0)
 
 @enum BackoffIdleState begin
     BACKOFF_IDLE_STATE_NOT_IDLE

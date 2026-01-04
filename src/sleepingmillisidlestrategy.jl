@@ -8,6 +8,7 @@ This struct uses `Base.sleep` to idle. Warning: Base.sleep allocates memory.
 struct SleepingMillisIdleStrategy <: IdleStrategy
     sleeptime::Float32
     function SleepingMillisIdleStrategy(sleeptime)
+        sleeptime <= 0 && error("sleeptime must be positive")
         new(sleeptime / 1000)
     end
 end
