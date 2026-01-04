@@ -15,46 +15,27 @@ concurrency:
 
 jobs:
   test:
-    name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }}
+    name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - threads ${{ matrix.threads }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    continue-on-error: ${{ matrix.version == 'nightly' }}
     permissions:
       actions: write
       contents: read
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - version: 'lts'
-            os: ubuntu-latest
-            arch: x64
-          - version: '1'
-            os: ubuntu-latest
-            arch: x64
-          - version: 'nightly'
-            os: ubuntu-latest
-            arch: x64
-            allow_failure: true
-          - version: 'lts'
-            os: windows-latest
-            arch: x64
-          - version: '1'
-            os: windows-latest
-            arch: x64
-          - version: 'nightly'
-            os: windows-latest
-            arch: x64
-            allow_failure: true
-          - version: 'lts'
-            os: macos-latest
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        version: ['lts', '1', 'nightly']
+        threads: [1, 4]
+        arch: [x64, aarch64]
+        exclude:
+          - os: ubuntu-latest
             arch: aarch64
-          - version: '1'
-            os: macos-latest
+          - os: windows-latest
             arch: aarch64
-          - version: 'nightly'
-            os: macos-latest
-            arch: aarch64
-            allow_failure: true
+          - os: macos-latest
+            arch: x64
     steps:
       - uses: actions/checkout@v4
       - uses: julia-actions/setup-julia@v2
@@ -64,6 +45,8 @@ jobs:
       - uses: julia-actions/cache@v2
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
+        env:
+          JULIA_NUM_THREADS: ${{ matrix.threads }}
       - uses: julia-actions/julia-processcoverage@v1
       - uses: codecov/codecov-action@v5
         with:
