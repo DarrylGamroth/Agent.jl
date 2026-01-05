@@ -5,7 +5,7 @@ using Agent
     
     @testset "Multi-Agent System" begin
         # Test multiple agents running concurrently
-        mutable struct CounterAgent
+        mutable struct IntegrationCounterAgent
             id::Int
             target::Int
             counter::Int
@@ -13,13 +13,13 @@ using Agent
             finished::Bool
         end
         
-        CounterAgent(id::Int, target::Int) = CounterAgent(id, target, 0, false, false)
+        IntegrationCounterAgent(id::Int, target::Int) = IntegrationCounterAgent(id, target, 0, false, false)
         
-        Agent.name(agent::CounterAgent) = "counter-$(agent.id)"
-        Agent.on_start(agent::CounterAgent) = (agent.started = true)
-        Agent.on_close(agent::CounterAgent) = (agent.finished = true)
+        Agent.name(agent::IntegrationCounterAgent) = "counter-$(agent.id)"
+        Agent.on_start(agent::IntegrationCounterAgent) = (agent.started = true)
+        Agent.on_close(agent::IntegrationCounterAgent) = (agent.finished = true)
         
-        function Agent.do_work(agent::CounterAgent)
+        function Agent.do_work(agent::IntegrationCounterAgent)
             agent.counter += 1
             if agent.counter >= agent.target
                 throw(AgentTerminationException())
@@ -28,7 +28,7 @@ using Agent
         end
         
         # Create multiple agents with different targets
-        agents = [CounterAgent(i, 5 + i) for i in 1:3]
+        agents = [IntegrationCounterAgent(i, 5 + i) for i in 1:3]
         runners = [AgentRunner(NoOpIdleStrategy(), agent) for agent in agents]
         
         # Start all agents
