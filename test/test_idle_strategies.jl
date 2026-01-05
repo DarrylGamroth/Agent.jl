@@ -7,6 +7,7 @@ using Agent
         strategy = NoOpIdleStrategy()
         @test isa(strategy, IdleStrategy)
         @test isa(strategy, NoOpIdleStrategy)
+        @test Agent.alias(strategy) == "noop"
         
         # idle() should do nothing and not error
         Agent.idle(strategy)
@@ -24,6 +25,7 @@ using Agent
         strategy = BusySpinIdleStrategy()
         @test isa(strategy, IdleStrategy)
         @test isa(strategy, BusySpinIdleStrategy)
+        @test Agent.alias(strategy) == "spin"
         
         # Test that idle() completes without error (calls CPU pause)
         Agent.idle(strategy)
@@ -40,6 +42,7 @@ using Agent
         strategy = YieldingIdleStrategy()
         @test isa(strategy, IdleStrategy)
         @test isa(strategy, YieldingIdleStrategy)
+        @test Agent.alias(strategy) == "yield"
         
         # Test that idle() completes without error (calls yield)
         Agent.idle(strategy)
@@ -58,6 +61,7 @@ using Agent
         @test isa(strategy, IdleStrategy)
         @test isa(strategy, SleepingIdleStrategy)
         @test strategy.sleeptime == 1000
+        @test Agent.alias(strategy) == "sleep-ns"
         
         # Test that idle() completes without error
         Agent.idle(strategy)
@@ -80,6 +84,7 @@ using Agent
         @test isa(strategy, IdleStrategy)
         @test isa(strategy, SleepingMillisIdleStrategy)
         @test strategy.sleeptime ≈ 0.01  # 10ms converted to seconds
+        @test Agent.alias(strategy) == "sleep-ms"
         
         strategy2 = SleepingMillisIdleStrategy(100)  # 100 milliseconds
         @test strategy2.sleeptime ≈ 0.1  # 100ms converted to seconds
@@ -100,6 +105,7 @@ using Agent
         strategy = BackoffIdleStrategy()
         @test isa(strategy, IdleStrategy)
         @test isa(strategy, BackoffIdleStrategy)
+        @test Agent.alias(strategy) == "backoff"
         
         # Test custom constructor
         strategy2 = BackoffIdleStrategy(5, 3, 500, 50000)
@@ -180,5 +186,32 @@ using Agent
             # Test reset
             Agent.reset(strategy)
         end
+    end
+
+    @testset "ControllableIdleStrategy" begin
+        status = Ref{ControllableIdleMode}(CONTROLLABLE_NOOP)
+        strategy = ControllableIdleStrategy(status)
+
+        @test isa(strategy, IdleStrategy)
+        @test Agent.alias(strategy) == "controllable"
+
+        Agent.idle(strategy, 1)
+        Agent.idle(strategy, 0)
+
+        status[] = CONTROLLABLE_BUSY_SPIN
+        Agent.idle(strategy)
+
+        status[] = CONTROLLABLE_YIELD
+        Agent.idle(strategy)
+
+        status[] = CONTROLLABLE_PARK
+        Agent.idle(strategy)
+    end
+
+    @testset "IdleStrategy Default Implementation" begin
+        struct UnimplementedIdleStrategy <: IdleStrategy end
+        strategy = UnimplementedIdleStrategy()
+
+        @test_throws MethodError Agent.idle(strategy)
     end
 end

@@ -10,4 +10,6 @@ function idle(::YieldingIdleStrategy)
     yield()
 end
 
+alias(::YieldingIdleStrategy) = "yield"
+
 export YieldingIdleStrategy

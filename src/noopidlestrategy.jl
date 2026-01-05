@@ -11,4 +11,6 @@ function idle(::NoOpIdleStrategy)
     # No operation performed
 end
 
+alias(::NoOpIdleStrategy) = "noop"
+
 export NoOpIdleStrategy

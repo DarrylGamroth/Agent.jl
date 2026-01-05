@@ -18,4 +18,6 @@ function idle(strategy::SleepingIdleStrategy)
     park(strategy.sleeptime)
 end
 
+alias(::SleepingIdleStrategy) = "sleep-ns"
+
 export SleepingIdleStrategy

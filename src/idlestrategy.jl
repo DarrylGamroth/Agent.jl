@@ -64,6 +64,13 @@ Reset the internal state in preparation for entering an idle state again.
 """
 reset(::IdleStrategy) = nothing
 
+"""
+    alias(strategy::IdleStrategy)
+
+Return a short name for the idle strategy.
+"""
+alias(::IdleStrategy) = ""
+
 if Sys.isunix()
     struct TimeSpec
         tv_sec::Int64
@@ -84,4 +91,4 @@ else
     error("park undefined for this OS")
 end
 
-export IdleStrategy
+export IdleStrategy, alias

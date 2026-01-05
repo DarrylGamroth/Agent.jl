@@ -99,6 +99,17 @@ using Agent
         close(runner)
         @test Agent.is_closed(runner)
     end
+
+    @testset "AgentRunner Close Before Start" begin
+        agent = SimpleTestAgent("close-before-start")
+        runner = AgentRunner(NoOpIdleStrategy(), agent)
+
+        close(runner)
+
+        @test agent.closed
+        @test Agent.is_closed(runner)
+        @test_throws ArgumentError start_on_thread(runner)
+    end
     
     @testset "AgentRunner Error Conditions" begin
         agent = SimpleTestAgent("error-test")
@@ -197,12 +208,13 @@ using Agent
             work_count::Int
             should_error::Bool
             error_handled::Bool
+            events::Vector{Symbol}
         end
         
-        ErrorHandlingAgent() = ErrorHandlingAgent(0, false, false)
+        ErrorHandlingAgent() = ErrorHandlingAgent(0, false, false, Symbol[])
         
         Agent.name(agent::ErrorHandlingAgent) = "error-agent"
-        Agent.on_error(agent::ErrorHandlingAgent, error) = (agent.error_handled = true)
+        Agent.on_error(agent::ErrorHandlingAgent, error) = (agent.error_handled = true; push!(agent.events, :on_error))
         
         function Agent.do_work(agent::ErrorHandlingAgent)
             agent.work_count += 1
@@ -217,14 +229,49 @@ using Agent
         # Test error handling
         agent = ErrorHandlingAgent()
         agent.should_error = true
-        runner = AgentRunner(NoOpIdleStrategy(), agent)
+        handler = (agent, error) -> push!(agent.events, :error_handler)
+        runner = AgentRunner(NoOpIdleStrategy(), agent; error_handler=handler)
         
         start_on_thread(runner)
         wait(runner)
         
         @test agent.error_handled
+        @test agent.events[1] == :error_handler
+        @test agent.events[2] == :on_error
         @test Agent.is_closed(runner)
         
+        close(runner)
+    end
+
+    @testset "AgentRunner Error Counter and Handler Termination" begin
+        mutable struct CounterAgent
+            name::String
+            work_count::Int
+            events::Vector{Symbol}
+        end
+
+        CounterAgent(name::String) = CounterAgent(name, 0, Symbol[])
+
+        Agent.name(agent::CounterAgent) = agent.name
+        Agent.on_error(agent::CounterAgent, error) = push!(agent.events, :on_error)
+
+        function Agent.do_work(agent::CounterAgent)
+            agent.work_count += 1
+            error("boom")
+        end
+
+        agent = CounterAgent("counter-agent")
+        counter = Ref(0)
+        handler = (agent, error) -> (push!(agent.events, :error_handler); throw(AgentTerminationException()))
+        runner = AgentRunner(NoOpIdleStrategy(), agent; error_handler=handler, error_counter=counter)
+
+        start_on_thread(runner)
+        wait(runner)
+
+        @test counter[] == 1
+        @test agent.events == [:error_handler]
+        @test Agent.is_closed(runner)
+
         close(runner)
     end
     

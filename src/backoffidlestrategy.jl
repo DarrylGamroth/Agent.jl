@@ -82,4 +82,6 @@ end
     strategy.state = BACKOFF_IDLE_STATE_NOT_IDLE
 end
 
+alias(::BackoffIdleStrategy) = "backoff"
+
 export BackoffIdleStrategy

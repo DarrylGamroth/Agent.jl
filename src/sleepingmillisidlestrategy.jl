@@ -17,4 +17,6 @@ function idle(strategy::SleepingMillisIdleStrategy)
     sleep(strategy.sleeptime)
 end
 
+alias(::SleepingMillisIdleStrategy) = "sleep-ms"
+
 export SleepingMillisIdleStrategy

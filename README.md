@@ -50,6 +50,10 @@ Choose based on your latency vs CPU usage requirements:
 - `YieldingIdleStrategy()` - Cooperative multitasking
 - `SleepingIdleStrategy()` - Sleeps for a defined amount of time when idle
 - `NoOpIdleStrategy()` - No-op when idle
+- `SleepingMillisIdleStrategy()` - Sleeps for a defined amount of time in milliseconds
+- `ControllableIdleStrategy(status_ref)` - Switches behavior based on `status_ref::Ref{ControllableIdleMode}`
+
+Idle strategies also expose `Agent.alias(strategy)` for a short, stable name.
 
 ## Advanced Features
 
@@ -70,6 +74,59 @@ Thread pinning is beneficial for:
 - **NUMA systems**: Pin agents to threads on specific CPU sockets
 - **Real-time workloads**: Isolate critical agents from general computation
 - **Cache optimization**: Keep related agents on the same physical core
+
+**AgentInvoker:**
+```julia
+# Drive an agent without creating a Task
+agent = MyAgent(0)
+invoker = AgentInvoker(agent)
+start(invoker)
+while is_running(invoker)
+    Agent.invoke(invoker)
+end
+close(invoker)
+```
+
+**Composite Agents:**
+```julia
+agent_a = MyAgent(0)
+agent_b = MyAgent(0)
+composite = CompositeAgent(agent_a, agent_b)
+runner = AgentRunner(NoOpIdleStrategy(), composite)
+start_on_thread(runner)
+```
+
+**Dynamic Composite Agents:**
+```julia
+dyn = DynamicCompositeAgent("dynamic", agent_a)
+Agent.on_start(dyn)
+try_add(dyn, agent_b)
+Agent.do_work(dyn) # processes pending add/remove requests
+Agent.on_close(dyn)
+```
+
+Status values are `Agent.INIT`, `Agent.ACTIVE`, and `Agent.CLOSED`. Calls to `try_add`/`try_remove` are only valid in
+the `Agent.ACTIVE` state.
+
+**Controllable Idle Strategy:**
+```julia
+status = Ref{ControllableIdleMode}(CONTROLLABLE_NOOP)
+strategy = ControllableIdleStrategy(status)
+status[] = CONTROLLABLE_YIELD
+```
+This uses a `Ref` so the mode can be adjusted externally (e.g., from another task) without mutating the strategy itself,
+which mirrors Agrona's "indicator" model and keeps control separate from behavior.
+
+**Error Handling:**
+```julia
+errors = Ref(0)
+handler = (agent, err) -> @warn "agent error" agent=Agent.name(agent) error=err
+
+runner = AgentRunner(BackoffIdleStrategy(), agent; error_handler=handler, error_counter=errors)
+start_on_thread(runner)
+wait(runner)
+close(runner)
+```
 
 ## Agent Interface
 

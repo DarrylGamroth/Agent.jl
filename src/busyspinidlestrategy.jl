@@ -12,4 +12,6 @@ function idle(::BusySpinIdleStrategy)
     ccall(:jl_cpu_pause, Cvoid, ())
 end
 
+alias(::BusySpinIdleStrategy) = "spin"
+
 export BusySpinIdleStrategy

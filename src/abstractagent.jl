@@ -5,6 +5,7 @@
     - `on_start()`: This method is called when the agent starts running.
     - `do_work()`: This method is called repeatedly by the same thread to perform the agent's work.
     - `on_close()`: This method is called when the agent finishes running, either successfully or due to failure.
+    - `on_error()`: This method is called when the agent encounters an error.
 
     All lifecycle methods are called by the same thread and in a thread-safe manner if the agent runs successfully.
     `on_close()` will be called if the agent fails to run.

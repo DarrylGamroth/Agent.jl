@@ -5,9 +5,11 @@ Note: An instance can only be started once then discarded.
 const SINGLE_THREAD_SAFEPOINT_INTERVAL = 1024
 @assert ispow2(SINGLE_THREAD_SAFEPOINT_INTERVAL)
 
-mutable struct AgentRunner{I<:IdleStrategy,A,N}
+mutable struct AgentRunner{I<:IdleStrategy,A,H,C,N}
     idle_strategy::I
     agent::A
+    error_handler::H
+    error_counter::C
     @atomic is_started::Bool
     @atomic is_closed::Bool
     @atomic is_running::Bool
@@ -18,9 +20,20 @@ mutable struct AgentRunner{I<:IdleStrategy,A,N}
     # Arguments
     - `idle_strategy`: The idle strategy to use for the agent run loop.
     - `agent`: The agent to be run in this thread.
+    - `error_handler`: Optional handler called before `on_error`.
+    - `error_counter`: Optional counter incremented on errors.
     """
-    function AgentRunner(idle_strategy::I, agent::A) where {I,A}
-        new{I,A,Threads.nthreads()}(idle_strategy, agent, false, false, false, nothing)
+    function AgentRunner(idle_strategy::I, agent::A; error_handler=nothing, error_counter=nothing) where {I,A}
+        new{I,A,typeof(error_handler),typeof(error_counter),Threads.nthreads()}(
+            idle_strategy,
+            agent,
+            error_handler,
+            error_counter,
+            false,
+            false,
+            false,
+            nothing,
+        )
     end
 end
 
@@ -73,7 +86,19 @@ This function will wait for the agent task to exit.
 - `runner::AgentRunner`: The agent runner object.
 """
 function Base.close(runner::AgentRunner, timeout=0.1)
+    if is_closed(runner)
+        return
+    end
+
     if !(@atomic :acquire runner.is_started)
+        is_running!(runner, false)
+        try
+            on_close(runner.agent)
+        catch e
+            handle_error(runner.error_handler, runner.error_counter, runner.agent, e)
+        finally
+            is_closed!(runner, true)
+        end
         return
     end
 
@@ -194,7 +219,7 @@ function run(runner::AgentRunner)
             on_start(agent)
         catch e
             is_running!(runner, false)
-            on_error(agent, e)
+            handle_error(runner.error_handler, runner.error_counter, agent, e)
         end
 
         while is_running(runner)
@@ -205,7 +230,7 @@ function run(runner::AgentRunner)
         try
             on_close(agent)
         catch e
-            on_error(agent, e)
+            handle_error(runner.error_handler, runner.error_counter, agent, e)
         end
         is_closed!(runner, true)
     end
@@ -226,7 +251,7 @@ end
             is_running!(runner, false)
         else
             try
-                on_error(agent, e)
+                handle_error(runner.error_handler, runner.error_counter, agent, e)
             catch on_error_e
                 if on_error_e isa AgentTerminationException
                     is_running!(runner, false)
@@ -258,7 +283,7 @@ end
             is_running!(runner, false)
         else
             try
-                on_error(agent, e)
+                handle_error(runner.error_handler, runner.error_counter, agent, e)
             catch on_error_e
                 if on_error_e isa AgentTerminationException
                     is_running!(runner, false)
