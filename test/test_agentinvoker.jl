@@ -43,17 +43,17 @@ using Agent
     end
 
     @testset "Error Handling Order" begin
-        mutable struct ErrorAgent
+        mutable struct ErrorInvokerAgent
             events::Vector{Symbol}
             work_count::Int
         end
 
-        ErrorAgent() = ErrorAgent(Symbol[], 0)
+        ErrorInvokerAgent() = ErrorInvokerAgent(Symbol[], 0)
 
-        Agent.name(agent::ErrorAgent) = "error-invoker"
-        Agent.on_error(agent::ErrorAgent, error) = push!(agent.events, :on_error)
+        Agent.name(agent::ErrorInvokerAgent) = "error-invoker"
+        Agent.on_error(agent::ErrorInvokerAgent, error) = push!(agent.events, :on_error)
 
-        function Agent.do_work(agent::ErrorAgent)
+        function Agent.do_work(agent::ErrorInvokerAgent)
             agent.work_count += 1
             if agent.work_count == 1
                 error("invoker error")
@@ -61,7 +61,7 @@ using Agent
             throw(AgentTerminationException())
         end
 
-        agent = ErrorAgent()
+        agent = ErrorInvokerAgent()
         handler = (agent, error) -> push!(agent.events, :error_handler)
         invoker = AgentInvoker(agent; error_handler=handler)
 
