@@ -1,7 +1,7 @@
 name = "Agent"
 uuid = "f7939a7f-2bcc-4096-952b-c44031b5533b"
 authors = ["Darryl Gamroth <dgamroth@rubus.ca>"]
-version = "0.3.5"
+version = "0.3.6"
 
 [deps]
 Hwloc = "0e44f5e4-bd66-52a0-8798-143a42290a1d"

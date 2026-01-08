@@ -27,13 +27,7 @@ name(agent::CompositeAgent) = agent.composite_name
 
 function on_start(agent::CompositeAgent)
     errors = Exception[]
-    for sub_agent in agent.agents
-        try
-            on_start(sub_agent)
-        catch e
-            push!(errors, e)
-        end
-    end
+    _on_start_tuple!(agent.agents, errors)
 
     if !isempty(errors)
         throw(CompositeException(errors))
@@ -42,27 +36,42 @@ function on_start(agent::CompositeAgent)
 end
 
 function do_work(agent::CompositeAgent)
-    work_count = 0
-    for sub_agent in agent.agents
-        work_count += do_work(sub_agent)
+    return _do_work_tuple(agent.agents)
+end
+
+@inline _do_work_tuple(::Tuple{}) = 0
+@inline function _do_work_tuple(agents::Tuple)
+    return do_work(first(agents)) + _do_work_tuple(Base.tail(agents))
+end
+
+@inline _on_start_tuple!(::Tuple{}, errors::Vector{Exception}) = nothing
+@inline function _on_start_tuple!(agents::Tuple, errors::Vector{Exception})
+    try
+        on_start(first(agents))
+    catch e
+        push!(errors, e)
     end
-    return work_count
+    return _on_start_tuple!(Base.tail(agents), errors)
 end
 
 function on_close(agent::CompositeAgent)
     errors = Exception[]
-    for sub_agent in agent.agents
-        try
-            on_close(sub_agent)
-        catch e
-            push!(errors, e)
-        end
-    end
+    _on_close_tuple!(agent.agents, errors)
 
     if !isempty(errors)
         throw(CompositeException(errors))
     end
     return nothing
+end
+
+@inline _on_close_tuple!(::Tuple{}, errors::Vector{Exception}) = nothing
+@inline function _on_close_tuple!(agents::Tuple, errors::Vector{Exception})
+    try
+        on_close(first(agents))
+    catch e
+        push!(errors, e)
+    end
+    return _on_close_tuple!(Base.tail(agents), errors)
 end
 
 export CompositeAgent

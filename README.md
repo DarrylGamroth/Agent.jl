@@ -95,6 +95,8 @@ composite = CompositeAgent(agent_a, agent_b)
 runner = AgentRunner(NoOpIdleStrategy(), composite)
 start_on_thread(runner)
 ```
+For best performance, construct `CompositeAgent` directly from concrete agent values (as above) rather than from
+type-erased containers like `Vector{Any}` or `Vector{AbstractAgent}`.
 
 **Dynamic Composite Agents:**
 ```julia
