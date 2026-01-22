@@ -33,8 +33,12 @@ using Agent
         @test is_running(invoker)
         @test agent.started
 
-        while is_running(invoker)
-            Agent.invoke(invoker)
+        try
+            while is_running(invoker)
+                Agent.invoke(invoker)
+            end
+        catch e
+            Agent.handle_error(invoker, e)
         end
 
         @test is_closed(invoker)
@@ -66,7 +70,11 @@ using Agent
         invoker = AgentInvoker(agent; error_handler=handler)
 
         start(invoker)
-        Agent.invoke(invoker)
+        try
+            Agent.invoke(invoker)
+        catch e
+            Agent.handle_error(invoker, e)
+        end
 
         @test agent.events[1] == :error_handler
         @test agent.events[2] == :on_error

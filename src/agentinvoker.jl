@@ -73,42 +73,42 @@ end
 """
     invoke(invoker::AgentInvoker)
 
-Invoke `do_work` once and return the work count.
+Invoke `do_work` once and return the work count. This method does not handle
+exceptions and is intended for hot-path use.
 """
-function invoke(invoker::AgentInvoker)
-    work_count = 0
-    if invoker.is_running
+invoke(invoker::AgentInvoker) = invoker.is_running ? do_work(invoker.agent) : 0
+
+"""
+    handle_error(invoker::AgentInvoker, error)
+
+Handle errors thrown by `invoke` when the caller wraps the outer loop in a single
+`try`/`catch`.
+"""
+@noinline function handle_error(invoker::AgentInvoker, e)
+    invoker.is_running = false
+    if e isa InterruptException
+        return nothing
+    elseif e isa AgentTerminationException
         try
-            work_count = do_work(invoker.agent)
-        catch e
-            if e isa InterruptException
-                invoker.is_running = false
-            elseif e isa AgentTerminationException
-                invoker.is_running = false
-                try
-                    handle_error(invoker.error_handler, invoker.error_counter, invoker.agent, e)
-                catch on_error_e
-                    if !(on_error_e isa AgentTerminationException)
-                        rethrow(on_error_e)
-                    end
-                end
+            handle_error(invoker.error_handler, invoker.error_counter, invoker.agent, e)
+        catch on_error_e
+            if !(on_error_e isa AgentTerminationException)
+                rethrow(on_error_e)
+            end
+        end
+        close(invoker)
+    else
+        try
+            handle_error(invoker.error_handler, invoker.error_counter, invoker.agent, e)
+        catch on_error_e
+            if on_error_e isa AgentTerminationException
                 close(invoker)
             else
-                try
-                    handle_error(invoker.error_handler, invoker.error_counter, invoker.agent, e)
-                catch on_error_e
-                    if on_error_e isa AgentTerminationException
-                        invoker.is_running = false
-                        close(invoker)
-                    else
-                        rethrow(on_error_e)
-                    end
-                end
+                rethrow(on_error_e)
             end
         end
     end
-
-    return work_count
+    return nothing
 end
 
 """
@@ -131,4 +131,4 @@ function Base.close(invoker::AgentInvoker)
     return nothing
 end
 
-export AgentInvoker, agent, is_closed, is_running, is_started, start
+export AgentInvoker, agent, handle_error, is_closed, is_running, is_started, start

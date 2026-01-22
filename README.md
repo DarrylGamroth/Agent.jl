@@ -81,8 +81,12 @@ Thread pinning is beneficial for:
 agent = MyAgent(0)
 invoker = AgentInvoker(agent)
 start(invoker)
-while is_running(invoker)
-    Agent.invoke(invoker)
+try
+    while is_running(invoker)
+        Agent.invoke(invoker)
+    end
+catch e
+    Agent.handle_error(invoker, e)
 end
 close(invoker)
 ```
