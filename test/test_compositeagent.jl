@@ -109,8 +109,12 @@ using Agent
         @test a.work_count == 2
         @test b.work_count == 2
 
-        @test @allocated(Agent.do_work(composite)) == 0
-        @test @allocated(Agent.on_start(composite)) == 0
-        @test @allocated(Agent.on_close(composite)) == 0
+        # Coverage instrumentation itself can allocate in otherwise allocation-free
+        # calls, so only make exact allocation assertions in uninstrumented runs.
+        if Base.JLOptions().code_coverage == 0
+            @test @allocated(Agent.do_work(composite)) == 0
+            @test @allocated(Agent.on_start(composite)) == 0
+            @test @allocated(Agent.on_close(composite)) == 0
+        end
     end
 end
