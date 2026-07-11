@@ -1,5 +1,10 @@
 using Test
 using Agent
+using Aqua
+
+@testset "Aqua quality assurance" begin
+    Aqua.test_all(Agent)
+end
 
 # Include all test files
 include("test_agent_interface.jl")

@@ -2,6 +2,7 @@
 
 [![Build Status](https://github.com/DarrylGamroth/Agent.jl/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/DarrylGamroth/Agent.jl/actions/workflows/ci.yml?query=branch%3Amain)
 [![Coverage](https://codecov.io/gh/DarrylGamroth/Agent.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/DarrylGamroth/Agent.jl)
+[![Aqua QA](https://juliatesting.github.io/Aqua.jl/dev/assets/badge.svg)](https://github.com/JuliaTesting/Aqua.jl)
 
 A Julia implementation of the Agent pattern from [Agrona](https://github.com/aeron-io/agrona), providing high-performance background workers that run on separate threads with configurable idle strategies.
 
@@ -57,23 +58,33 @@ Idle strategies also expose `Agent.alias(strategy)` for a short, stable name.
 
 ## Advanced Features
 
-**Thread Pinning:**
+**Julia Thread Assignment:**
 ```julia
-# Run on a specific thread (useful for NUMA optimization or isolation)
-start_on_thread(runner, 2)  # Run on thread 2
+# Assign the task to a specific Julia runtime thread
+start_on_thread(runner, 2)
 
 # Or let Julia's scheduler choose the thread
 start_on_thread(runner)      # Automatic thread assignment
 
-# Check available threads
-println("Available threads: ", Threads.nthreads())
+# Check available managed threads and their global id range
+managed_threads = Threads.nthreads(:interactive) + Threads.nthreads(:default)
+println("Managed thread ids: 1:", managed_threads)
 println("Current thread: ", Threads.threadid())
 ```
 
-Thread pinning is beneficial for:
-- **NUMA systems**: Pin agents to threads on specific CPU sockets
-- **Real-time workloads**: Isolate critical agents from general computation
-- **Cache optimization**: Keep related agents on the same physical core
+`start_on_thread(runner, id)` makes the task sticky to that Julia thread. It does
+not establish OS CPU affinity, reserve a physical core, or change scheduling
+priority. Use an OS-affinity or thread-pinning package separately if those
+properties are required. Thread ids include Julia's interactive and default
+thread pools.
+
+**Cooperative Shutdown:**
+
+`close(runner)` requests shutdown and waits for the current duty cycle and
+`on_close` to finish. `do_work` should return periodically. If it performs a
+blocking operation, the application must arrange for that operation to be woken
+during shutdown; Julia has no safe general equivalent to Java's
+`Thread.interrupt`, and Agent does not inject exceptions into running tasks.
 
 **AgentInvoker:**
 ```julia
@@ -133,6 +144,10 @@ start_on_thread(runner)
 wait(runner)
 close(runner)
 ```
+
+`wait(runner)` propagates fatal runner-task failures as `TaskFailedException`.
+Cleanup always transitions the runner to closed, even if `on_close` or an error
+handler throws.
 
 ## Agent Interface
 

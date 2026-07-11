@@ -60,8 +60,9 @@ using Agent
         mutable struct SharedQueue
             items::Vector{Int}
             max_size::Int
+            lock::ReentrantLock
         end
-        SharedQueue(max_size::Int) = SharedQueue(Int[], max_size)
+        SharedQueue(max_size::Int) = SharedQueue(Int[], max_size, ReentrantLock())
         
         # Producer agent
         mutable struct ProducerAgent
@@ -77,14 +78,19 @@ using Agent
         Agent.on_close(agent::ProducerAgent) = (agent.finished = true)
         
         function Agent.do_work(agent::ProducerAgent)
-            if length(agent.queue.items) < agent.queue.max_size && agent.produced < agent.target
-                push!(agent.queue.items, agent.produced + 1)
-                agent.produced += 1
-                return 1  # Work done
-            elseif agent.produced >= agent.target
-                throw(AgentTerminationException())
+            lock(agent.queue.lock)
+            try
+                if length(agent.queue.items) < agent.queue.max_size && agent.produced < agent.target
+                    push!(agent.queue.items, agent.produced + 1)
+                    agent.produced += 1
+                    return 1  # Work done
+                elseif agent.produced >= agent.target
+                    throw(AgentTerminationException())
+                end
+                return 0  # No work done (queue full)
+            finally
+                unlock(agent.queue.lock)
             end
-            return 0  # No work done (queue full)
         end
         
         # Consumer agent
@@ -101,15 +107,20 @@ using Agent
         Agent.on_close(agent::ConsumerAgent) = (agent.finished = true)
         
         function Agent.do_work(agent::ConsumerAgent)
-            if !isempty(agent.queue.items)
-                item = popfirst!(agent.queue.items)
-                push!(agent.consumed, item)
-                if length(agent.consumed) >= agent.target
-                    throw(AgentTerminationException())
+            lock(agent.queue.lock)
+            try
+                if !isempty(agent.queue.items)
+                    item = popfirst!(agent.queue.items)
+                    push!(agent.consumed, item)
+                    if length(agent.consumed) >= agent.target
+                        throw(AgentTerminationException())
+                    end
+                    return 1  # Work done
                 end
-                return 1  # Work done
+                return 0  # No work done (queue empty)
+            finally
+                unlock(agent.queue.lock)
             end
-            return 0  # No work done (queue empty)
         end
         
         # Set up producer-consumer system
