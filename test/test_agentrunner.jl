@@ -1,5 +1,6 @@
 using Test
 using Agent
+using StableTasks
 
 @testset "AgentRunner Tests" begin
     
@@ -36,36 +37,22 @@ using Agent
         @test isa(runner, AgentRunner)
         @test runner.idle_strategy === idle_strategy
         @test runner.agent === agent
+        @test !is_started(runner)
         @test !Agent.is_running(runner)
         @test !Agent.is_closed(runner)
         @test isopen(runner)
     end
     
-    @testset "AgentRunner State Management" begin
+    @testset "AgentRunner State Observation" begin
         agent = SimpleTestAgent("test")
         runner = AgentRunner(NoOpIdleStrategy(), agent)
         
         # Test initial state
+        @test !is_started(runner)
         @test !Agent.is_running(runner)
         @test !Agent.is_closed(runner)
         @test isopen(runner)
-        
-        # Test state setters
-        Agent.is_running!(runner, true)
-        @test Agent.is_running(runner)
-        @test isready(runner)  # isready should return is_running
-        
-        Agent.is_running!(runner, false)
-        @test !Agent.is_running(runner)
         @test !isready(runner)
-        
-        Agent.is_closed!(runner, true)
-        @test Agent.is_closed(runner)
-        @test !isopen(runner)
-        
-        Agent.is_closed!(runner, false)
-        @test !Agent.is_closed(runner)
-        @test isopen(runner)
     end
     
     @testset "AgentRunner Lifecycle" begin
@@ -78,7 +65,7 @@ using Agent
         
         # Start the runner
         start_on_thread(runner)
-        @test runner.is_started
+        @test is_started(runner)
         
         # Wait a short time for agent to start and do some work
         sleep(0.1)
@@ -172,16 +159,23 @@ using Agent
         
         close(runner)
         
-        # Test specific thread assignment (if multiple threads available)
-        if Threads.nthreads() > 1
-            agent2 = SimpleTestAgent("thread-test-2", 2)
+        # Test specific assignment to the last managed Julia thread. With an
+        # interactive pool this id is greater than Threads.nthreads().
+        if Agent.managed_thread_count() > 1
+            mutable struct ThreadRecordingAgent
+                threadid::Int
+            end
+            Agent.do_work(agent::ThreadRecordingAgent) =
+                (agent.threadid = Threads.threadid(); throw(AgentTerminationException()))
+
+            agent2 = ThreadRecordingAgent(0)
             runner2 = AgentRunner(NoOpIdleStrategy(), agent2)
+            target_thread = Agent.managed_thread_count()
             
-            start_on_thread(runner2, 2)  # Try to run on thread 2
+            start_on_thread(runner2, target_thread)
             wait(runner2)
             
-            @test agent2.started
-            @test agent2.closed
+            @test agent2.threadid == target_thread
             @test Agent.is_closed(runner2)
             
             close(runner2)
@@ -200,6 +194,11 @@ using Agent
             
             close(runner2)
         end
+
+        invalid_thread = Agent.managed_thread_count() + 1
+        invalid_runner = AgentRunner(NoOpIdleStrategy(), SimpleTestAgent("invalid-thread", 2))
+        @test_throws ArgumentError start_on_thread(invalid_runner, invalid_thread)
+        close(invalid_runner)
     end
     
     @testset "AgentRunner Error Handling" begin
@@ -306,11 +305,150 @@ using Agent
         @test agent.work_count > 0
         @test Agent.is_running(runner)
         
-        # Interrupt by closing
+        # Cooperative shutdown waits for the current duty cycle to finish.
         close(runner)
         
         @test agent.closed
         @test Agent.is_closed(runner)
         @test !Agent.is_running(runner)
+    end
+
+    @testset "AgentRunner Fatal Failure Propagation" begin
+        mutable struct FatalAgent
+            closed::Bool
+        end
+
+        Agent.do_work(::FatalAgent) = error("fatal work failure")
+        Agent.on_close(agent::FatalAgent) = (agent.closed = true)
+
+        agent = FatalAgent(false)
+        runner = AgentRunner(NoOpIdleStrategy(), agent)
+        start_on_thread(runner)
+
+        @test_throws TaskFailedException wait(runner)
+        @test istaskfailed(runner.task)
+        @test agent.closed
+        @test Agent.is_closed(runner)
+        close(runner)
+    end
+
+    @testset "AgentRunner Cleanup Failure Closes Runner" begin
+        mutable struct CleanupFailureAgent
+            fail_close::Bool
+        end
+
+        Agent.do_work(::CleanupFailureAgent) = throw(AgentTerminationException())
+        function Agent.on_close(agent::CleanupFailureAgent)
+            agent.fail_close && error("cleanup failure")
+            return nothing
+        end
+
+        agent = CleanupFailureAgent(true)
+        runner = AgentRunner(NoOpIdleStrategy(), agent)
+        task = start_on_thread(runner)
+
+        @test task isa StableTasks.StableTask
+        @test_throws TaskFailedException wait(runner)
+        @test Agent.is_closed(runner)
+        @test !isopen(runner)
+        close(runner)
+
+        before_start = AgentRunner(NoOpIdleStrategy(), CleanupFailureAgent(true))
+        @test_throws ErrorException close(before_start)
+        @test Agent.is_closed(before_start)
+    end
+
+    @testset "AgentRunner Close Wins Startup Race" begin
+        mutable struct StartupRaceAgent
+            close_entered::Channel{Nothing}
+            close_release::Channel{Nothing}
+            starts::Int
+            work::Int
+            closes::Int
+        end
+
+        Agent.on_start(agent::StartupRaceAgent) = (agent.starts += 1)
+        Agent.do_work(agent::StartupRaceAgent) = (agent.work += 1; 0)
+        function Agent.on_close(agent::StartupRaceAgent)
+            agent.closes += 1
+            put!(agent.close_entered, nothing)
+            take!(agent.close_release)
+            return nothing
+        end
+
+        agent = StartupRaceAgent(Channel{Nothing}(1), Channel{Nothing}(1), 0, 0, 0)
+        runner = AgentRunner(YieldingIdleStrategy(), agent)
+        closer = Threads.@spawn close(runner)
+
+        take!(agent.close_entered)
+        @test_throws ArgumentError start_on_thread(runner)
+        put!(agent.close_release, nothing)
+        wait(closer)
+
+        @test agent.starts == 0
+        @test agent.work == 0
+        @test agent.closes == 1
+        @test !is_started(runner)
+        @test Agent.is_closed(runner)
+    end
+
+    @testset "AgentRunner Close Before Task Claim" begin
+        mutable struct UnclaimedAgent
+            starts::Int
+            work::Int
+            closes::Int
+        end
+
+        Agent.on_start(agent::UnclaimedAgent) = (agent.starts += 1)
+        Agent.do_work(agent::UnclaimedAgent) = (agent.work += 1; 0)
+        Agent.on_close(agent::UnclaimedAgent) = (agent.closes += 1)
+
+        agent = UnclaimedAgent(0, 0, 0)
+        runner = AgentRunner(YieldingIdleStrategy(), agent)
+        start_on_thread(runner, Threads.threadid())
+        close(runner)
+
+        @test agent.starts == 0
+        @test agent.work == 0
+        @test agent.closes == 1
+        @test istaskdone(runner.task)
+        @test Agent.is_closed(runner)
+    end
+
+    @testset "AgentRunner Concurrent Close" begin
+        mutable struct ConcurrentCloseAgent
+            started::Channel{Nothing}
+            closes::Int
+        end
+
+        Agent.on_start(agent::ConcurrentCloseAgent) = put!(agent.started, nothing)
+        Agent.do_work(::ConcurrentCloseAgent) = (sleep(0.01); 0)
+        Agent.on_close(agent::ConcurrentCloseAgent) = (agent.closes += 1)
+
+        agent = ConcurrentCloseAgent(Channel{Nothing}(1), 0)
+        runner = AgentRunner(YieldingIdleStrategy(), agent)
+        start_on_thread(runner)
+        take!(agent.started)
+
+        closers = ntuple(_ -> Threads.@spawn(close(runner)), 3)
+        foreach(wait, closers)
+
+        @test agent.closes == 1
+        @test Agent.is_closed(runner)
+        @test istaskdone(runner.task)
+    end
+
+    @testset "AgentRunner Thread-Count Specialization" begin
+        runner = AgentRunner(NoOpIdleStrategy(), SimpleTestAgent("specialization", 2))
+        @test typeof(runner).parameters[5] == Agent.managed_thread_count()
+
+        method = which(Agent.run_loop, (typeof(runner),))
+        if Agent.managed_thread_count() == 1
+            @test occursin("AgentRunner{I, A, H, C, 1}", string(method.sig))
+        else
+            @test method.sig == Tuple{typeof(Agent.run_loop), AgentRunner}
+        end
+
+        close(runner)
     end
 end

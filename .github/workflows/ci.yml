@@ -26,8 +26,10 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        version: ['lts', '1', 'nightly']
-        threads: [1, 4]
+        version: ['min', '1', 'nightly']
+        # Cover the single-thread safepoint path, the normal multi-thread path,
+        # and explicit default/interactive thread pools.
+        threads: ['1', '4', '2,1']
         arch: [x64, aarch64]
         exclude:
           - os: ubuntu-latest
@@ -37,18 +39,18 @@ jobs:
           - os: macos-latest
             arch: x64
     steps:
-      - uses: actions/checkout@v4
-      - uses: julia-actions/setup-julia@v2
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
         with:
           version: ${{ matrix.version }}
           arch: ${{ matrix.arch }}
-      - uses: julia-actions/cache@v2
+      - uses: julia-actions/cache@v3
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
         env:
           JULIA_NUM_THREADS: ${{ matrix.threads }}
       - uses: julia-actions/julia-processcoverage@v1
-      - uses: codecov/codecov-action@v5
+      - uses: codecov/codecov-action@v7
         with:
           files: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
