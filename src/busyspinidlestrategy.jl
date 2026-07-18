@@ -1,3 +1,9 @@
+# Copyright 2014-2025 Real Logic Limited.
+# Copyright 2024-2026 Rubus Technologies Inc.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Ported from Agrona and substantially modified for Julia.
+
 """
     struct BusySpinIdleStrategy <: IdleStrategy
 
