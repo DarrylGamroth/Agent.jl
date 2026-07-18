@@ -56,6 +56,7 @@ using Agent
     end
     
     @testset "SleepingIdleStrategy" begin
+        @test SleepingIdleStrategy().sleeptime == 1000
         # Test with valid sleep time (1 microsecond)
         strategy = SleepingIdleStrategy(1000)  # 1000 nanoseconds = 1 microsecond
         @test isa(strategy, IdleStrategy)
@@ -79,6 +80,7 @@ using Agent
     end
     
     @testset "SleepingMillisIdleStrategy" begin
+        @test SleepingMillisIdleStrategy().sleeptime ≈ 0.001
         # Test with various sleep times
         strategy = SleepingMillisIdleStrategy(10)  # 10 milliseconds
         @test isa(strategy, IdleStrategy)
@@ -189,22 +191,24 @@ using Agent
     end
 
     @testset "ControllableIdleStrategy" begin
-        status = Ref{ControllableIdleMode}(CONTROLLABLE_NOOP)
-        strategy = ControllableIdleStrategy(status)
+        strategy = ControllableIdleStrategy(CONTROLLABLE_NOOP)
 
         @test isa(strategy, IdleStrategy)
         @test Agent.alias(strategy) == "controllable"
+        @test idle_mode(strategy) == CONTROLLABLE_NOOP
+        @test_throws MethodError ControllableIdleStrategy(Ref(CONTROLLABLE_NOOP))
 
         Agent.idle(strategy, 1)
         Agent.idle(strategy, 0)
 
-        status[] = CONTROLLABLE_BUSY_SPIN
+        @test set_idle_mode!(strategy, CONTROLLABLE_BUSY_SPIN) === strategy
         Agent.idle(strategy)
 
-        status[] = CONTROLLABLE_YIELD
+        fetch(Threads.@spawn set_idle_mode!(strategy, CONTROLLABLE_YIELD))
+        @test idle_mode(strategy) == CONTROLLABLE_YIELD
         Agent.idle(strategy)
 
-        status[] = CONTROLLABLE_PARK
+        set_idle_mode!(strategy, CONTROLLABLE_PARK)
         Agent.idle(strategy)
     end
 

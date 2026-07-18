@@ -1,28 +1,43 @@
 """
-    An Agent is scheduled to do work on a thread on a duty cycle. Each Agent should have a defined role in a system.
+    AgentTerminationException([message]; expected=true)
 
-    # Lifecycle Methods
-    - `on_start()`: This method is called when the agent starts running.
-    - `do_work()`: This method is called repeatedly by the same thread to perform the agent's work.
-    - `on_close()`: This method is called when the agent finishes running, either successfully or due to failure.
-    - `on_error()`: This method is called when the agent encounters an error.
-
-    All lifecycle methods are called by the same thread and in a thread-safe manner if the agent runs successfully.
-    `on_close()` will be called if the agent fails to run.
-"""
+Exception an agent can throw to stop its duty cycle. Expected terminations are
+normal graceful shutdowns and are not reported to the error handler. Set
+`expected=false` when termination itself should be reported as an error.
 
 """
-    struct AgentTerminationException <: Exception
+struct AgentTerminationException <: Exception
+    message::Union{Nothing,String}
+    expected::Bool
+end
 
-AgentTerminationException is an exception that an agent can throw to stop itself from running.
+AgentTerminationException() = AgentTerminationException(nothing, true)
+AgentTerminationException(expected::Bool) = AgentTerminationException(nothing, expected)
+AgentTerminationException(message::AbstractString; expected::Bool=true) =
+    AgentTerminationException(String(message), expected)
 
 """
-struct AgentTerminationException <: Exception end
+    is_expected(exception::AgentTerminationException)
+
+Return whether an agent termination represents graceful shutdown.
+"""
+is_expected(exception::AgentTerminationException) = exception.expected
+
+function Base.showerror(io::IO, exception::AgentTerminationException)
+    print(io, "AgentTerminationException")
+    exception.message === nothing || print(io, ": ", exception.message)
+    return nothing
+end
 
 """
     do_work(agent)
 
 Perform the main work of the agent.
+
+Runner lifecycle and duty-cycle methods are serialised by one owning task and
+are never invoked concurrently by Agent.jl. A scheduler-managed task may
+migrate between Julia runtime threads after yielding; only
+`start_on_thread(runner, id)` guarantees one Julia runtime thread.
 
 # Arguments
 - `agent`: The agent object.
@@ -77,11 +92,11 @@ end
 Return the name of the agent.
 
 # Arguments
-- `agent::AbstractAgent`: The agent object.
+- `agent`: The agent object.
 
 """
 function name(agent)
     throw(MethodError(name, (agent,)))
 end
 
-export AgentTerminationException
+export AgentTerminationException, is_expected

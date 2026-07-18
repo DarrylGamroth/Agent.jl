@@ -14,6 +14,8 @@ struct SleepingIdleStrategy <: IdleStrategy
     end
 end
 
+SleepingIdleStrategy() = SleepingIdleStrategy(1_000)
+
 function idle(strategy::SleepingIdleStrategy)
     park(strategy.sleeptime)
 end

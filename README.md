@@ -1,164 +1,250 @@
 # Agent.jl
 
-[![Build Status](https://github.com/DarrylGamroth/Agent.jl/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/DarrylGamroth/Agent.jl/actions/workflows/ci.yml?query=branch%3Amain)
+[![CI](https://github.com/DarrylGamroth/Agent.jl/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/DarrylGamroth/Agent.jl/actions/workflows/ci.yml?query=branch%3Amain)
 [![Coverage](https://codecov.io/gh/DarrylGamroth/Agent.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/DarrylGamroth/Agent.jl)
 [![Aqua QA](https://juliatesting.github.io/Aqua.jl/dev/assets/badge.svg)](https://github.com/JuliaTesting/Aqua.jl)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-A Julia implementation of the Agent pattern from [Agrona](https://github.com/aeron-io/agrona), providing high-performance background workers that run on separate threads with configurable idle strategies.
+Agent.jl is a Julia 1.10+ implementation of the
+[Agrona](https://github.com/aeron-io/agrona) Agent protocol: duty-cycle agents,
+runners, invokers, composite agents, and idle strategies.
 
-## Usage
+The package intentionally stops at the Agent abstraction. Other Agrona
+facilities—buffers, queues, clocks, counters, codecs, and collections—belong in
+separate packages.
+
+## Quick start
 
 ```julia
 using Agent
 
-# 1. Define your agent
-mutable struct MyAgent
-    counter::Int
+mutable struct CounterAgent
+    count::Int
 end
 
-# 2. Implement the required methods
-function Agent.do_work(agent::MyAgent)
-    agent.counter += 1
-    println("Working... count: $(agent.counter)")
-    
-    # Agent can terminate itself by throwing AgentTerminationException
-    if agent.counter >= 10
-        throw(AgentTerminationException())
-    end
-    
-    return 1  # Return work count (>0 indicates work was done)
+function Agent.do_work(agent::CounterAgent)
+    agent.count += 1
+    agent.count == 10 && throw(AgentTerminationException())
+    return 1
 end
 
-Agent.name(agent::MyAgent) = "Counter"
-Agent.on_start(agent::MyAgent) = println("Agent starting...")
-Agent.on_close(agent::MyAgent) = println("Agent closing...")
-Agent.on_error(agent::MyAgent, e) = println("Agent error: $e")
+Agent.name(::CounterAgent) = "counter"
+Agent.on_start(::CounterAgent) = nothing
+Agent.on_close(::CounterAgent) = nothing
 
-# 3. Run the agent
-agent = MyAgent(0)
-runner = AgentRunner(BackoffIdleStrategy(), agent)
-start_on_thread(runner)
-wait(runner)  # Will stop after 10 iterations or press Ctrl+C
-close(runner)
+runner = AgentRunner(BackoffIdleStrategy(), CounterAgent(0))
+start(runner)
+wait(runner)
+close(runner) # idempotent after wait
 ```
 
-## Idle Strategies
+`AgentTerminationException()` is an expected, quiet termination for backward
+compatibility. Use `AgentTerminationException(false)` or
+`AgentTerminationException("reason"; expected=false)` when the termination
+should also be reported as an error.
 
-Choose based on your latency vs CPU usage requirements:
+## Execution and Julia threads
 
-- `BackoffIdleStrategy()` - Progressive backoff (recommended default)
-- `BusySpinIdleStrategy()` - Lowest latency, highest CPU usage  
-- `YieldingIdleStrategy()` - Cooperative multitasking
-- `SleepingIdleStrategy()` - Sleeps for a defined amount of time when idle
-- `NoOpIdleStrategy()` - No-op when idle
-- `SleepingMillisIdleStrategy()` - Sleeps for a defined amount of time in milliseconds
-- `ControllableIdleStrategy(status_ref)` - Switches behavior based on `status_ref::Ref{ControllableIdleMode}`
+AgentRunner has two explicit execution modes:
 
-Idle strategies also expose `Agent.alias(strategy)` for a short, stable name.
-
-## Advanced Features
-
-**Julia Thread Assignment:**
 ```julia
-# Assign the task to a specific Julia runtime thread
-start_on_thread(runner, 2)
-
-# Or let Julia's scheduler choose the thread
-start_on_thread(runner)      # Automatic thread assignment
-
-# Check available managed threads and their global id range
-managed_threads = Threads.nthreads(:interactive) + Threads.nthreads(:default)
-println("Managed thread ids: 1:", managed_threads)
-println("Current thread: ", Threads.threadid())
+start(runner)                 # migratable, scheduler-cooperative task
+start_on_thread(runner, 2)    # sticky task on Julia runtime thread 2
 ```
 
-`start_on_thread(runner, id)` makes the task sticky to that Julia thread. It does
-not establish OS CPU affinity, reserve a physical core, or change scheduling
-priority. Use an OS-affinity or thread-pinning package separately if those
-properties are required. Thread ids include Julia's interactive and default
-thread pools.
+`start_on_thread` assigns a Julia task to a runtime thread. Valid IDs belong to
+Julia's `:interactive` or `:default` thread pool; `:foreign` thread IDs are
+rejected. Assignment alone does not set OS affinity, but the optional
+[ThreadPinning.jl](https://github.com/carstenbauer/ThreadPinning.jl) extension
+can pin the selected Julia runtime thread to a CPU on Linux:
 
-**Cooperative Shutdown:**
-
-`close(runner)` requests shutdown and waits for the current duty cycle and
-`on_close` to finish. `do_work` should return periodically. If it performs a
-blocking operation, the application must arrange for that operation to be woken
-during shutdown; Julia has no safe general equivalent to Java's
-`Thread.interrupt`, and Agent does not inject exceptions into running tasks.
-
-**AgentInvoker:**
 ```julia
-# Drive an agent without creating a Task
-agent = MyAgent(0)
-invoker = AgentInvoker(agent)
+using Agent, ThreadPinning
+
+cpu = first(ThreadPinning.cpuids()) # physical OS CPU IDs start at zero
+start_on_thread(runner, 2; cpuid=cpu)
+```
+
+This combines sticky task placement with actual OS CPU affinity. It is the
+Julia analogue of passing Agrona `AgentRunner.startOnThread` an
+affinity-aware `ThreadFactory`. Pinning does not reserve the core or change OS
+scheduling priority. Affinity belongs to the Julia runtime thread, persists
+after the runner closes, and affects later tasks assigned to that thread; use
+ThreadPinning.jl to restore or remove it when appropriate. On a one-thread
+Julia process, use thread ID `1`; the runner still yields after each duty cycle
+for scheduler and GC progress.
+
+The no-argument `start_on_thread(runner)` remains as a compatibility alias for
+`start(runner)`, but it does not provide thread assignment.
+
+### Safepoints
+
+Agrona's
+[`IdleStrategy` documentation](https://github.com/aeron-io/agrona/blob/master/agrona/src/main/java/org/agrona/concurrent/IdleStrategy.java)
+warns that a counted JVM loop using an inlined no-op or busy-spin strategy may
+delay time-to-safepoint. Agrona leaves the poll to the JVM and suggests
+preventing the idle method from being inlined, for example with
+`-XX:CompileCommand=dontinline,org.agrona.concurrent.NoOpIdleStrategy::idle`;
+`AgentRunner` itself does not add a poll.
+
+Julia does not have an equivalent reliable per-method JIT switch, so Agent.jl
+makes the execution mode responsible for progress:
+
+- `start(runner)` calls `GC.safepoint()` and yields after every duty cycle.
+- An explicitly assigned runner does the same when its Julia thread pool has
+  one managed thread, allowing GC and the task requesting shutdown to run.
+- With multiple managed threads, an explicitly assigned runner preserves its
+  dedicated-loop behavior and calls `GC.safepoint()` every 1024 duty cycles.
+
+Custom loops that call `idle` directly must provide their own safepoint or
+scheduler-yield policy.
+
+## Cooperative shutdown
+
+```julia
+request_stop!(runner) # non-blocking request
+wait(runner)          # wait and propagate fatal task failures
+
+close(runner, 0.25; on_stall = runner -> begin
+    @warn "agent has not stopped" agent=Agent.name(agent(runner)) task=runner_task(runner)
+end)
+```
+
+`close` requests shutdown, waits for the current duty cycle, and waits for
+`on_close`. `do_work` must return periodically. If it blocks, application code
+must arrange to wake that operation. Agent.jl never injects an exception into
+an already-running task.
+
+The optional `on_stall` callback runs after each close timeout and can inspect
+the runner and its task. A retry interval of zero waits indefinitely and does
+not call the callback.
+
+## Idle strategies
+
+- `BackoffIdleStrategy()` progressively spins, yields, then parks.
+- `BusySpinIdleStrategy()` issues a CPU pause hint.
+- `YieldingIdleStrategy()` yields when no work was done.
+- `SleepingIdleStrategy([nanoseconds])` parks, defaulting to 1 microsecond.
+- `SleepingMillisIdleStrategy([milliseconds])` sleeps, defaulting to 1 ms.
+- `NoOpIdleStrategy()` performs no idle operation.
+- `ControllableIdleStrategy([mode])` uses an atomically published mode.
+
+Stateful idle strategies are owned by one runner and must not be shared by
+concurrently executing runners.
+
+`BusySpinIdleStrategy` is only a pause instruction; it does not choose where
+the runner executes. With `start(runner)`, or with an assigned one-thread pool,
+the runner still yields each duty cycle and is therefore cooperative rather
+than a dedicated busy spin. For dedicated-loop behavior, assign the runner to
+a Julia runtime thread in a pool containing more than one managed thread. Add
+`cpuid` when Linux CPU affinity is required. Neither mode reserves a core or
+changes OS scheduling priority.
+
+```julia
+strategy = ControllableIdleStrategy(CONTROLLABLE_NOOP)
+set_idle_mode!(strategy, CONTROLLABLE_YIELD)
+@assert idle_mode(strategy) == CONTROLLABLE_YIELD
+```
+
+The available controllable modes are `CONTROLLABLE_NOT_CONTROLLED`,
+`CONTROLLABLE_NOOP`, `CONTROLLABLE_BUSY_SPIN`, `CONTROLLABLE_YIELD`, and
+`CONTROLLABLE_PARK`.
+
+## AgentInvoker
+
+`AgentInvoker` lets a caller own the loop. `invoke` is the checked,
+Agrona-compatible API:
+
+```julia
+invoker = AgentInvoker(CounterAgent(0))
 start(invoker)
-try
-    while is_running(invoker)
-        Agent.invoke(invoker)
-    end
-catch e
-    Agent.handle_error(invoker, e)
+while is_running(invoker)
+    Agent.invoke(invoker)
 end
 close(invoker)
 ```
 
-**Composite Agents:**
+`invoke_unchecked` omits the catch path for a loop that centralises exception
+handling itself:
+
 ```julia
-agent_a = MyAgent(0)
-agent_b = MyAgent(0)
+try
+    while is_running(invoker)
+        invoke_unchecked(invoker)
+    end
+catch exception
+    handle_error(invoker, exception)
+end
+```
+
+The invoker is not thread-safe.
+
+## Composite agents
+
+`CompositeAgent` stores a concrete tuple, allowing heterogeneous agents to be
+scheduled as one unit without type erasure:
+
+```julia
+agent_a = CounterAgent(0)
+agent_b = CounterAgent(0)
 composite = CompositeAgent(agent_a, agent_b)
 runner = AgentRunner(NoOpIdleStrategy(), composite)
-start_on_thread(runner)
-```
-For best performance, construct `CompositeAgent` directly from concrete agent values (as above) rather than from
-type-erased containers like `Vector{Any}` or `Vector{AbstractAgent}`.
-
-**Dynamic Composite Agents:**
-```julia
-dyn = DynamicCompositeAgent("dynamic", agent_a)
-Agent.on_start(dyn)
-try_add(dyn, agent_b)
-Agent.do_work(dyn) # processes pending add/remove requests
-Agent.on_close(dyn)
+start(runner)
 ```
 
-Status values are `Agent.INIT`, `Agent.ACTIVE`, and `Agent.CLOSED`. Calls to `try_add`/`try_remove` are only valid in
-the `Agent.ACTIVE` state.
+If a sub-agent throws during `do_work`, the next invocation resumes at the
+following agent before wrapping to the first. This follows Agrona's cursor
+protocol and prevents a repeatedly failing early agent from starving later
+agents.
 
-**Controllable Idle Strategy:**
-```julia
-status = Ref{ControllableIdleMode}(CONTROLLABLE_NOOP)
-strategy = ControllableIdleStrategy(status)
-status[] = CONTROLLABLE_YIELD
-```
-This uses a `Ref` so the mode can be adjusted externally (e.g., from another task) without mutating the strategy itself,
-which mirrors Agrona's "indicator" model and keeps control separate from behavior.
-
-**Error Handling:**
-```julia
-errors = Ref(0)
-handler = (agent, err) -> @warn "agent error" agent=Agent.name(agent) error=err
-
-runner = AgentRunner(BackoffIdleStrategy(), agent; error_handler=handler, error_counter=errors)
-start_on_thread(runner)
-wait(runner)
-close(runner)
-```
-
-`wait(runner)` propagates fatal runner-task failures as `TaskFailedException`.
-Cleanup always transitions the runner to closed, even if `on_close` or an error
-handler throws.
-
-## Agent Interface
-
-Implement these methods for your agent type:
+`DynamicCompositeAgent` accepts one pending add and one pending identity-based
+remove request from other threads:
 
 ```julia
-function Agent.do_work(agent)     # Main work method - return work count (>0 = work done)
-Agent.name(agent)                 # Agent identifier string
-Agent.on_start(agent)             # Called when agent starts
-Agent.on_close(agent)             # Called when agent stops  
-Agent.on_error(agent, e)          # Called when exception occurs
+composite = DynamicCompositeAgent("dynamic", agent_a)
+Agent.on_start(composite)
+try_add(composite, agent_b)
+Agent.do_work(composite) # consumes pending requests on the owner thread
+Agent.on_close(composite)
 ```
 
-**Note:** An agent can terminate itself by throwing `AgentTerminationException()` from any method.
+Add/remove publication is atomic and non-blocking. Agent lifecycle methods are
+still executed only by the composite's owner.
+
+## Error handling
+
+An optional external handler runs before `Agent.on_error`. Only exceptions from
+`do_work` increment the optional counter; startup, cleanup, and termination
+errors are reported without incrementing it.
+
+```julia
+errors = Threads.Atomic{Int}(0)
+handler = (owned_agent, exception) ->
+    @warn "agent error" agent=Agent.name(owned_agent) exception
+owned_agent = CounterAgent(0)
+
+runner = AgentRunner(
+    BackoffIdleStrategy(),
+    owned_agent;
+    error_handler=handler,
+    error_counter=errors,
+)
+```
+
+The counter must be `Threads.Atomic{<:Integer}` because runner errors can be
+observed and counted across Julia threads. An ordinary `Ref` is rejected.
+
+## Benchmarks
+
+The `benchmark/` environment contains focused, closed-loop microbenchmarks for
+the invoker, composites, idle primitives, and runner placement modes. They
+report the source revision, Julia environment, host, and thread configuration,
+and make no cross-machine latency guarantee. See
+[`benchmark/README.md`](benchmark/README.md) for the reproducible setup and the
+scope of the measurements.
+
+## License
+
+Copyright 2024–2026 Rubus Technologies Inc. Licensed under the
+[Apache License, Version 2.0](LICENSE). See [NOTICE](NOTICE) for Agrona
+attribution.

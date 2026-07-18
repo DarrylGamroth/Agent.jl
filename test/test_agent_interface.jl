@@ -7,6 +7,12 @@ using Agent
         @test AgentTerminationException <: Exception
         exception = AgentTerminationException()
         @test isa(exception, AgentTerminationException)
+        @test is_expected(exception)
+        @test !is_expected(AgentTerminationException(false))
+        @test is_expected(AgentTerminationException("done"))
+        @test !is_expected(AgentTerminationException("failed"; expected=false))
+        @test sprint(showerror, AgentTerminationException("done")) ==
+              "AgentTerminationException: done"
     end
     
     @testset "Default Agent Interface Methods" begin

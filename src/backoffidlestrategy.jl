@@ -1,15 +1,3 @@
-using Hwloc
-
-const CACHE_LINE_SIZE::Int = let
-    size = try
-        cachelinesize(:L1)
-    catch
-        64
-    end
-    size > 0 ? size : 64
-end
-const CACHE_LINE_PAD::Int = max(CACHE_LINE_SIZE - sizeof(Int64), 0)
-
 @enum BackoffIdleState begin
     BACKOFF_IDLE_STATE_NOT_IDLE
     BACKOFF_IDLE_STATE_SPINNING
@@ -25,7 +13,6 @@ Idling strategy for threads when they have no work to do.
 Spin for `max_spins`, then `yield()` for `max_yields`, then `nanosleep(max_park_period_ns)` on an exponential backoff to `max_park_period_ns`.
 """
 mutable struct BackoffIdleStrategy <: IdleStrategy
-    const pad1::NTuple{CACHE_LINE_PAD,Int8}
     const max_spins::Int64
     const max_yields::Int64
     const min_park_period_ns::Int64
@@ -34,10 +21,9 @@ mutable struct BackoffIdleStrategy <: IdleStrategy
     yields::Int64
     park_period_ns::Int64
     state::BackoffIdleState
-    const pad2::NTuple{CACHE_LINE_PAD,Int8}
     function BackoffIdleStrategy(max_spins, max_yields, min_park_period_ns, max_park_period_ns)
-        new(ntuple(x -> Int8(0), CACHE_LINE_PAD), max_spins, max_yields, min_park_period_ns, max_park_period_ns,
-            0, 0, 0, BACKOFF_IDLE_STATE_NOT_IDLE, ntuple(x -> Int8(0), CACHE_LINE_PAD))
+        new(max_spins, max_yields, min_park_period_ns, max_park_period_ns,
+            0, 0, 0, BACKOFF_IDLE_STATE_NOT_IDLE)
     end
 end
 
@@ -45,7 +31,7 @@ function BackoffIdleStrategy()
     default_max_spins = 10
     default_max_yields = 5
     default_min_park_time = 1_000 # 1 microsecond
-    default_max_park_time = 1_000_000 # 1 milisecond
+    default_max_park_time = 1_000_000 # 1 millisecond
     return BackoffIdleStrategy(default_max_spins, default_max_yields, default_min_park_time, default_max_park_time)
 end
 

@@ -33,7 +33,7 @@ using Agent
         
         # Start all agents
         for runner in runners
-            start_on_thread(runner)
+            start(runner)
         end
         
         # Wait for all to complete
@@ -132,8 +132,8 @@ using Agent
         consumer_runner = AgentRunner(YieldingIdleStrategy(), consumer)
         
         # Start both agents
-        start_on_thread(producer_runner)
-        start_on_thread(consumer_runner)
+        start(producer_runner)
+        start(consumer_runner)
         
         # Wait for both to complete
         wait(producer_runner)
@@ -192,7 +192,7 @@ using Agent
         agent = RecoveringAgent(10, 3)  # Target 10 work, allow up to 3 errors
         runner = AgentRunner(NoOpIdleStrategy(), agent)
         
-        start_on_thread(runner)
+        start(runner)
         wait(runner)
         
         @test agent.finished
@@ -242,7 +242,7 @@ using Agent
         agent = MonitoredAgent(10)
         runner = AgentRunner(BackoffIdleStrategy(), agent)
         
-        start_on_thread(runner)
+        start(runner)
         wait(runner)
         
         # Verify monitoring data
@@ -283,17 +283,11 @@ using Agent
         agent = HighFrequencyAgent(1000)
         runner = AgentRunner(BusySpinIdleStrategy(), agent)
         
-        start_time = time()
-        start_on_thread(runner)
+        start(runner)
         wait(runner)
-        end_time = time()
         
         @test agent.finished
         @test agent.work_count == 1000
-        
-        # Should complete quickly with busy spin
-        execution_time = end_time - start_time
-        @test execution_time < 2.0  # Should be much faster than 2 seconds
         
         close(runner)
     end

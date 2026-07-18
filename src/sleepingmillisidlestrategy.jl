@@ -1,7 +1,7 @@
 """
     struct SleepingMillisIdleStrategy <: IdleStrategy
 
-When idle, this strategy sleeps for a specified period in miliseconds.
+When idle, this strategy sleeps for a specified period in milliseconds.
 
 This struct uses `Base.sleep` to idle. Warning: Base.sleep allocates memory.
 """
@@ -12,6 +12,8 @@ struct SleepingMillisIdleStrategy <: IdleStrategy
         new(sleeptime / 1000)
     end
 end
+
+SleepingMillisIdleStrategy() = SleepingMillisIdleStrategy(1)
 
 function idle(strategy::SleepingMillisIdleStrategy)
     sleep(strategy.sleeptime)

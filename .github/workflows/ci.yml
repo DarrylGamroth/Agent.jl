@@ -18,26 +18,28 @@ jobs:
     name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - threads ${{ matrix.threads }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
-    continue-on-error: ${{ matrix.version == 'nightly' }}
+    continue-on-error: ${{ matrix.experimental }}
     permissions:
       actions: write
       contents: read
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        version: ['min', '1', 'nightly']
-        # Cover the single-thread safepoint path, the normal multi-thread path,
-        # and explicit default/interactive thread pools.
-        threads: ['1', '4', '2,1']
-        arch: [x64, aarch64]
-        exclude:
-          - os: ubuntu-latest
-            arch: aarch64
-          - os: windows-latest
-            arch: aarch64
-          - os: macos-latest
-            arch: x64
+        # Explicit pairwise coverage avoids a 27-job Cartesian product while
+        # retaining every supported version, host, architecture, and thread
+        # configuration. `min` resolves the Julia 1.10 compatibility floor.
+        include:
+          - { version: 'min', os: ubuntu-latest, arch: x64, threads: '1', experimental: false }
+          - { version: 'min', os: ubuntu-latest, arch: x64, threads: '4', experimental: false }
+          - { version: 'min', os: ubuntu-latest, arch: x64, threads: '2,1', experimental: false }
+          - { version: '1', os: ubuntu-latest, arch: x64, threads: '1', experimental: false }
+          - { version: '1', os: ubuntu-latest, arch: x64, threads: '4', experimental: false }
+          - { version: '1', os: ubuntu-latest, arch: x64, threads: '2,1', experimental: false }
+          - { version: '1', os: windows-latest, arch: x64, threads: '1', experimental: false }
+          - { version: '1', os: windows-latest, arch: x64, threads: '4', experimental: false }
+          - { version: '1', os: macos-latest, arch: aarch64, threads: '1', experimental: false }
+          - { version: '1', os: macos-latest, arch: aarch64, threads: '4', experimental: false }
+          - { version: 'nightly', os: ubuntu-latest, arch: x64, threads: '4', experimental: true }
     steps:
       - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
@@ -55,3 +57,25 @@ jobs:
           files: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
+
+  benchmark-smoke:
+    name: Benchmark environment smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1.10'
+      - uses: julia-actions/cache@v3
+      - name: Instantiate benchmark environment
+        run: julia --startup-file=no --project=benchmark benchmark/setup.jl
+      - name: Verify benchmark lockfile is current
+        run: git diff --exit-code -- benchmark/Project.toml benchmark/Manifest.toml
+      - name: Run benchmark correctness smoke tests
+        run: |
+          julia --startup-file=no --threads=1 --project=benchmark benchmark/runbenchmarks.jl --smoke
+          julia --startup-file=no --threads=4 --project=benchmark benchmark/runbenchmarks.jl --smoke
+          julia --startup-file=no --threads=2,1 --project=benchmark benchmark/runbenchmarks.jl --smoke

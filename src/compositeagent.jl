@@ -1,9 +1,10 @@
 """
 Group multiple agents into a composite so they can be scheduled as a unit.
 """
-struct CompositeAgent{T<:Tuple}
+mutable struct CompositeAgent{T<:Tuple}
     agents::T
     composite_name::String
+    agent_index::Int
 end
 
 function CompositeAgent(agents::Tuple)
@@ -18,7 +19,7 @@ function CompositeAgent(agents::Tuple)
     end
 
     composite_name = "[" * join(names, ",") * "]"
-    return CompositeAgent(agents, composite_name)
+    return CompositeAgent(agents, composite_name, 1)
 end
 
 CompositeAgent(agents::Vararg{Any}) = CompositeAgent(agents)
@@ -26,6 +27,7 @@ CompositeAgent(agents::Vararg{Any}) = CompositeAgent(agents)
 name(agent::CompositeAgent) = agent.composite_name
 
 function on_start(agent::CompositeAgent)
+    agent.agent_index = 1
     errors = Exception[]
     _on_start_tuple!(agent.agents, errors)
 
@@ -36,12 +38,25 @@ function on_start(agent::CompositeAgent)
 end
 
 function do_work(agent::CompositeAgent)
-    return _do_work_tuple(agent.agents)
+    return _do_work_tuple!(agent)
 end
 
-@inline _do_work_tuple(::Tuple{}) = 0
-@inline function _do_work_tuple(agents::Tuple)
-    return do_work(first(agents)) + _do_work_tuple(Base.tail(agents))
+@generated function _do_work_tuple!(agent::CompositeAgent{T}) where {T<:Tuple}
+    duty_cycles = [
+        quote
+            if agent.agent_index <= $index
+                agent.agent_index = $(index + 1)
+                work_count += do_work(getfield(agent.agents, $index))
+            end
+        end for index in 1:fieldcount(T)
+    ]
+
+    return quote
+        work_count = 0
+        $(duty_cycles...)
+        agent.agent_index = 1
+        return work_count
+    end
 end
 
 @inline _on_start_tuple!(::Tuple{}, errors::Vector{Exception}) = nothing
@@ -55,6 +70,7 @@ end
 end
 
 function on_close(agent::CompositeAgent)
+    agent.agent_index = 1
     errors = Exception[]
     _on_close_tuple!(agent.agents, errors)
 

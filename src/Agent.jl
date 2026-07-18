@@ -1,3 +1,10 @@
+"""
+    Agent
+
+Agrona-inspired agents, runners, invokers, composites, and idle strategies for
+Julia. Agents are plain Julia values that implement the `Agent.do_work`
+protocol and optional lifecycle callbacks.
+"""
 module Agent
 
 using StableTasks

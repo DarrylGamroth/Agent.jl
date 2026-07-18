@@ -1,64 +1,52 @@
 """
-Status values for a `DynamicCompositeAgent`.
+    DynamicCompositeStatus
+
+Lifecycle states for a `DynamicCompositeAgent`.
 """
 @enum DynamicCompositeStatus INIT ACTIVE CLOSED
 
+@doc "The dynamic composite has not started." INIT
+@doc "The dynamic composite is active and accepts add/remove requests." ACTIVE
+@doc "The dynamic composite has completed shutdown." CLOSED
+
 """
-Dynamic composite agent that allows agents to be added and removed.
+    DynamicCompositeAgent(name[, agents...])
+
+An Agrona-style composite whose owner executes all agent lifecycle and duty
+cycle methods. Other threads may submit at most one pending add and one pending
+remove request without blocking. Requests are published through atomic fields;
+the runner thread consumes them at the beginning of a duty cycle.
 """
 mutable struct DynamicCompositeAgent
-
     agent_name::String
     agents::Vector{Any}
     @atomic status::DynamicCompositeStatus
-    pending_add::Base.RefValue{Any}
-    pending_remove::Base.RefValue{Any}
-    lock::Threads.SpinLock
+    @atomic pending_add::Any
+    @atomic pending_remove::Any
+    agent_index::Int
 
     function DynamicCompositeAgent(
         agent_name::String,
         agents::Vector{Any},
-        status::DynamicCompositeStatus,
-        pending_add::Base.RefValue{Any},
-        pending_remove::Base.RefValue{Any},
-        lock::Threads.SpinLock,
+        status::DynamicCompositeStatus=INIT,
     )
-        new(agent_name, agents, status, pending_add, pending_remove, lock)
+        new(agent_name, agents, status, nothing, nothing, 1)
     end
 end
 
-function DynamicCompositeAgent(agent_name::String)
-    return DynamicCompositeAgent(
-        agent_name,
-        Any[],
-        INIT,
-        Ref{Any}(nothing),
-        Ref{Any}(nothing),
-        Threads.SpinLock(),
-    )
-end
+DynamicCompositeAgent(agent_name::String) = DynamicCompositeAgent(agent_name, Any[])
 
 function DynamicCompositeAgent(agent_name::String, agents::AbstractVector)
     for agent in agents
         agent === nothing && throw(ArgumentError("agent cannot be nothing"))
     end
-
-    agents_vector = Vector{Any}(agents)
-    return DynamicCompositeAgent(
-        agent_name,
-        agents_vector,
-        INIT,
-        Ref{Any}(nothing),
-        Ref{Any}(nothing),
-        Threads.SpinLock(),
-    )
+    return DynamicCompositeAgent(agent_name, Vector{Any}(agents))
 end
 
 function DynamicCompositeAgent(agent_name::String, agents::Vararg{Any})
     if length(agents) == 1 && agents[1] isa AbstractVector
         return DynamicCompositeAgent(agent_name, agents[1])
     end
-
     return DynamicCompositeAgent(agent_name, collect(agents))
 end
 
@@ -67,11 +55,12 @@ name(agent::DynamicCompositeAgent) = agent.agent_name
 """
     status(agent::DynamicCompositeAgent)
 
-Return the current status of the dynamic composite agent.
+Return the current lifecycle status.
 """
 status(agent::DynamicCompositeAgent) = @atomic :acquire agent.status
 
 function on_start(agent::DynamicCompositeAgent)
+    agent.agent_index = 1
     for sub_agent in agent.agents
         on_start(sub_agent)
     end
@@ -81,35 +70,23 @@ function on_start(agent::DynamicCompositeAgent)
 end
 
 function do_work(agent::DynamicCompositeAgent)
-    agent_to_add = nothing
-    agent_to_remove = nothing
+    agent_to_add = @atomicswap :acquire_release agent.pending_add = nothing
+    agent_to_add === nothing || add_agent!(agent, agent_to_add)
 
-    lock(agent.lock)
-    try
-        if agent.pending_add[] !== nothing
-            agent_to_add = agent.pending_add[]
-            agent.pending_add[] = nothing
-        end
-        if agent.pending_remove[] !== nothing
-            agent_to_remove = agent.pending_remove[]
-            agent.pending_remove[] = nothing
-        end
-    finally
-        unlock(agent.lock)
-    end
-
-    if agent_to_add !== nothing
-        add_agent!(agent, agent_to_add)
-    end
-
-    if agent_to_remove !== nothing
-        remove_agent!(agent, agent_to_remove)
-    end
+    # Consume removal only after add processing succeeds. This preserves an
+    # independent pending removal when a newly added agent fails on_start,
+    # matching Agrona's request ordering.
+    agent_to_remove = @atomicswap :acquire_release agent.pending_remove = nothing
+    agent_to_remove === nothing || remove_agent!(agent, agent_to_remove)
 
     work_count = 0
-    for sub_agent in agent.agents
+    agents = agent.agents
+    while agent.agent_index <= length(agents)
+        sub_agent = agents[agent.agent_index]
+        agent.agent_index += 1
         work_count += do_work(sub_agent)
     end
+    agent.agent_index = 1
     return work_count
 end
 
@@ -126,101 +103,68 @@ function on_close(agent::DynamicCompositeAgent)
     end
 
     empty!(agent.agents)
+    agent.agent_index = 1
+    @atomicswap :acquire_release agent.pending_add = nothing
+    @atomicswap :acquire_release agent.pending_remove = nothing
 
-    lock(agent.lock)
-    try
-        agent.pending_add[] = nothing
-        agent.pending_remove[] = nothing
-    finally
-        unlock(agent.lock)
-    end
-
-    if !isempty(errors)
-        throw(CompositeException(errors))
-    end
+    isempty(errors) || throw(CompositeException(errors))
     return nothing
 end
 
 """
     try_add(agent::DynamicCompositeAgent, sub_agent)
 
-Request adding an agent; returns `true` if queued.
+Publish a non-blocking add request. Return `false` if another add is already
+pending. The composite must be active.
 """
 function try_add(agent::DynamicCompositeAgent, sub_agent)
     sub_agent === nothing && throw(ArgumentError("agent cannot be nothing"))
-    if status(agent) != ACTIVE
+    status(agent) === ACTIVE || throw(ArgumentError("add called when not active"))
+
+    _, success = @atomicreplace :acquire_release :acquire agent.pending_add nothing => sub_agent
+    if success && status(agent) !== ACTIVE
+        @atomicreplace :release :monotonic agent.pending_add sub_agent => nothing
         throw(ArgumentError("add called when not active"))
     end
-
-    lock(agent.lock)
-    try
-        if agent.pending_add[] !== nothing
-            return false
-        end
-        agent.pending_add[] = sub_agent
-        return true
-    finally
-        unlock(agent.lock)
-    end
+    return success
 end
 
 """
     has_add_completed(agent::DynamicCompositeAgent)
 
-Return `true` if the last add request has been processed.
+Return whether the most recently accepted add request has been consumed.
 """
 function has_add_completed(agent::DynamicCompositeAgent)
-    if status(agent) != ACTIVE
-        throw(ArgumentError("agent is not active"))
-    end
-
-    lock(agent.lock)
-    try
-        return agent.pending_add[] === nothing
-    finally
-        unlock(agent.lock)
-    end
+    status(agent) === ACTIVE || throw(ArgumentError("agent is not active"))
+    return (@atomic :acquire agent.pending_add) === nothing
 end
 
 """
     try_remove(agent::DynamicCompositeAgent, sub_agent)
 
-Request removing an agent; returns `true` if queued.
+Publish a non-blocking identity-based removal request. Return `false` if
+another removal is already pending. The composite must be active.
 """
 function try_remove(agent::DynamicCompositeAgent, sub_agent)
     sub_agent === nothing && throw(ArgumentError("agent cannot be nothing"))
-    if status(agent) != ACTIVE
+    status(agent) === ACTIVE || throw(ArgumentError("remove called when not active"))
+
+    _, success = @atomicreplace :acquire_release :acquire agent.pending_remove nothing => sub_agent
+    if success && status(agent) !== ACTIVE
+        @atomicreplace :release :monotonic agent.pending_remove sub_agent => nothing
         throw(ArgumentError("remove called when not active"))
     end
-
-    lock(agent.lock)
-    try
-        if agent.pending_remove[] !== nothing
-            return false
-        end
-        agent.pending_remove[] = sub_agent
-        return true
-    finally
-        unlock(agent.lock)
-    end
+    return success
 end
 
 """
     has_remove_completed(agent::DynamicCompositeAgent)
 
-Return `true` if the last remove request has been processed.
+Return whether the most recently accepted removal request has been consumed.
 """
 function has_remove_completed(agent::DynamicCompositeAgent)
-    if status(agent) != ACTIVE
-        throw(ArgumentError("agent is not active"))
-    end
-
-    lock(agent.lock)
-    try
-        return agent.pending_remove[] === nothing
-    finally
-        unlock(agent.lock)
-    end
+    status(agent) === ACTIVE || throw(ArgumentError("agent is not active"))
+    return (@atomic :acquire agent.pending_remove) === nothing
 end
 
 function add_agent!(agent::DynamicCompositeAgent, sub_agent)
@@ -232,7 +176,7 @@ function add_agent!(agent::DynamicCompositeAgent, sub_agent)
         catch close_e
             throw(CompositeException([e, close_e]))
         end
-        throw(e)
+        rethrow()
     end
 
     push!(agent.agents, sub_agent)
@@ -240,21 +184,21 @@ function add_agent!(agent::DynamicCompositeAgent, sub_agent)
 end
 
 function remove_agent!(agent::DynamicCompositeAgent, sub_agent)
-    idx = findfirst(existing -> existing === sub_agent, agent.agents)
-    idx === nothing && return nothing
+    index = findfirst(existing -> existing === sub_agent, agent.agents)
+    index === nothing && return nothing
 
     try
         on_close(sub_agent)
     finally
-        deleteat!(agent.agents, idx)
+        deleteat!(agent.agents, index)
     end
     return nothing
 end
 
 export DynamicCompositeAgent,
     DynamicCompositeStatus,
+    has_add_completed,
+    has_remove_completed,
     status,
     try_add,
-    has_add_completed,
-    try_remove,
-    has_remove_completed
+    try_remove

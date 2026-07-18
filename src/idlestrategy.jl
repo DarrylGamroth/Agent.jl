@@ -2,14 +2,14 @@
     Idle strategy for use by threads when they do not have work to do.
 
     **Note regarding implementor state:**
-    Some implementations are known to be stateful, please note that you cannot safely assume implementations to be
-    stateless. Where implementations are stateful it is recommended that implementation state is padded to avoid false
-    sharing.
+    Some implementations are stateful and must be owned by one runner. Do not
+    share a stateful strategy between concurrently executing agents.
 
     **Note regarding potential for TTSP (Time To Safe Point) issues:**
-    If the caller spins in a 'counted' loop, and the implementation does not include a safepoint poll this may cause a
-    TTSP (Time To SafePoint) problem. If the implementation does not include a safepoint poll, then the caller should
-    include a call to `GC.safepoint()` in the loop.
+    A counted, non-allocating loop can prevent Julia's garbage collector from
+    reaching a safepoint. `AgentRunner` inserts periodic GC safepoints for this
+    reason. Custom loops that call an idle strategy directly must provide their
+    own `GC.safepoint()` or another operation that reaches a safepoint.
 """
 abstract type IdleStrategy end
 
@@ -58,7 +58,7 @@ end
 end
 
 """
-    reset_idle_state()
+    reset(strategy::IdleStrategy)
 
 Reset the internal state in preparation for entering an idle state again.
 """

@@ -1,22 +1,28 @@
 name = "Agent"
 uuid = "f7939a7f-2bcc-4096-952b-c44031b5533b"
 authors = ["Darryl Gamroth <dgamroth@rubus.ca>"]
-version = "0.3.8"
+version = "0.4.0"
 
 [deps]
-Hwloc = "0e44f5e4-bd66-52a0-8798-143a42290a1d"
 StableTasks = "91464d47-22a1-43fe-8b7f-2d57ee82463f"
+
+[weakdeps]
+ThreadPinning = "811555cd-349b-4f26-b7bc-1f208b848042"
+
+[extensions]
+AgentThreadPinningExt = "ThreadPinning"
 
 [compat]
 Aqua = "0.8"
-Hwloc = "3"
 StableTasks = "0.1"
 Test = "1.10"
+ThreadPinning = "1"
 julia = "1.10"
 
 [extras]
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+ThreadPinning = "811555cd-349b-4f26-b7bc-1f208b848042"
 
 [targets]
-test = ["Aqua", "Test"]
+test = ["Aqua", "Test", "ThreadPinning"]

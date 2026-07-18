@@ -109,12 +109,43 @@ using Agent
         @test a.work_count == 2
         @test b.work_count == 2
 
-        # Coverage instrumentation itself can allocate in otherwise allocation-free
-        # calls, so only make exact allocation assertions in uninstrumented runs.
+        # The repeated duty cycle is the allocation-sensitive hot path.
+        # Lifecycle aggregation intentionally creates an error collection.
+        # Coverage instrumentation itself can allocate in otherwise
+        # allocation-free calls, so assert only in uninstrumented runs.
         if Base.JLOptions().code_coverage == 0
             @test @allocated(Agent.do_work(composite)) == 0
-            @test @allocated(Agent.on_start(composite)) == 0
-            @test @allocated(Agent.on_close(composite)) == 0
         end
+    end
+
+    @testset "Work Cursor Resumes After Failure" begin
+        mutable struct CursorAgent
+            name::String
+            calls::Int
+            should_fail::Bool
+        end
+
+        Agent.name(agent::CursorAgent) = agent.name
+        function Agent.do_work(agent::CursorAgent)
+            agent.calls += 1
+            agent.should_fail && error("$(agent.name) failed")
+            return 1
+        end
+
+        first_agent = CursorAgent("first", 0, true)
+        later_agent = CursorAgent("later", 0, false)
+        composite = CompositeAgent(first_agent, later_agent)
+
+        @test_throws ErrorException Agent.do_work(composite)
+        @test (first_agent.calls, later_agent.calls) == (1, 0)
+
+        # Agrona advances the cursor before invocation, so the later agent is
+        # serviced on the next duty cycle instead of being starved.
+        @test Agent.do_work(composite) == 1
+        @test (first_agent.calls, later_agent.calls) == (1, 1)
+
+        @test_throws ErrorException Agent.do_work(composite)
+        @test Agent.do_work(composite) == 1
+        @test (first_agent.calls, later_agent.calls) == (2, 2)
     end
 end
