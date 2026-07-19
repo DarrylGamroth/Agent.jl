@@ -1,6 +1,9 @@
 Agent.jl
 Copyright 2024-2026 Rubus Technologies Inc.
 
-This product implements the Agent protocol and idle strategies inspired by
-Agrona, Copyright 2014-2025 Real Logic Limited, which is distributed under the
-Apache License, Version 2.0.
+This product includes software adapted from Agrona
+(https://github.com/aeron-io/agrona):
+
+    Copyright 2014-2025 Real Logic Limited.
+
+Agrona is licensed under the Apache License, Version 2.0.

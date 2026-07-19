@@ -1,3 +1,9 @@
+# Copyright 2014-2025 Real Logic Limited.
+# Copyright 2024-2026 Rubus Technologies Inc.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Ported from Agrona and substantially modified for Julia.
+
 const RUNNER_SAFEPOINT_INTERVAL = 1024
 @assert ispow2(RUNNER_SAFEPOINT_INTERVAL)
 
